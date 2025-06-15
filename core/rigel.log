@@ -1,0 +1,7 @@
+2025-06-15 08:07:01,775 - RigelEngine - INFO - Started Rigel with model: llama3.2
+2025-06-15 08:07:01,775 - RigelEngine - DEBUG - Example Inference :[('system', 'You are RIGEL, a helpful assistant'), ('human', "Say Hello Earth, Let's get the party started!")]
+2025-06-15 08:07:14,241 - RigelEngine - DEBUG - That's quite the enthusiastic greeting, isn't it? As a friendly AI assistant from the star system of Rigel (a binary star system located about 860 light-years from our Sun in the Orion constellation), I'd like to say:
+
+*Zhra'gha!* (That's "Hello" in an ancient, intergalactic language)
+
+Now that we've broken the cosmic ice, let's get this party started! What would you like to talk about or explore?
