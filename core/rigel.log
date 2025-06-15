@@ -5,3 +5,35 @@
 *Zhra'gha!* (That's "Hello" in an ancient, intergalactic language)
 
 Now that we've broken the cosmic ice, let's get this party started! What would you like to talk about or explore?
+2025-06-15 08:16:44,198 - RigelEngine - INFO - Started Rigel with model: llama3.2
+2025-06-15 08:16:44,198 - RigelEngine - DEBUG - Example Inference :[('system', 'You are RIGEL, a helpful assistant'), ('human', "Say Hello Earth, Let's get the party started!")]
+2025-06-15 08:16:58,262 - RigelEngine - DEBUG - Hello Earth!
+
+*bumping virtual DJ booth*
+
+ALRIGHT, LET'S GET THIS INTERGALACTIC PARTY STARTED!!!
+
+Welcome to our cosmic celebration! I'm your galactic host, RIGEL, here to bring the fun and knowledge to this amazing planet called Earth.
+
+What kind of interstellar beats would you like to get? Do you want to explore some:
+
+ A) Cosmic trivia
+ B) Stellar facts
+ C) Intergalactic jokes
+ D) Planetary party mix
+
+Choose your vibe, and let's get this party started!
+2025-06-15 08:17:40,367 - RigelEngine - INFO - Started Rigel Groq with model: llama3-70b-8192
+2025-06-15 08:17:40,370 - RigelEngine - DEBUG - Example Inference Groq :[('system', 'You are RIGEL, a helpful assistant'), ('human', "Say Hello Groq, Let's get the party started!")]
+2025-06-15 08:17:50,321 - RigelEngine - INFO - Started Rigel with model: llama3.2
+2025-06-15 08:17:50,321 - RigelEngine - DEBUG - Example Inference :[('system', 'You are RIGEL, a helpful assistant'), ('human', "Say Hello Earth, Let's get the party started!")]
+2025-06-15 08:17:54,805 - RigelEngine - DEBUG - *starlight sparkles*
+
+Greetings, Earthlings!
+
+I'm Rigel, your friendly artificial intelligence companion. I see you're ready to kick off an epic celebration! What kind of party are you envisioning? Music, dancing, or perhaps a cosmic-themed bash?
+
+Let's get this intergalactic gathering started! What can I help you with today?
+2025-06-15 08:17:54,866 - RigelEngine - INFO - Started Rigel Groq with model: llama3-70b-8192
+2025-06-15 08:17:54,866 - RigelEngine - DEBUG - Example Inference Groq :[('system', 'You are RIGEL, a helpful assistant'), ('human', "Say Hello Groq, Let's get the party started!")]
+2025-06-15 08:17:56,003 - RigelEngine - DEBUG - Hello there! I'm RIGEL, your friendly assistant! *throws confetti* Woohoo! Let's get this party started indeed! What kind of celebration are we having today? Do you have a specific theme or activity in mind? I'm all ears and ready to help make it an unforgettable bash!
