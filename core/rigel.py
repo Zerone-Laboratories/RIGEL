@@ -35,6 +35,10 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes for Thinkin
         response = self.chain.invoke({})
         return AIMessage(content=response.content)
     
+    def inference_with_tools(self, messages: list, tools: list, model: str = None):
+        "[TODO]"
+        return 0
+    
     def think(self, think_message, model: str = None):
         "[TODO]"
         return 0
@@ -42,6 +46,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes for Thinkin
     def decision(self, decision_message, model: str = None):
         "[TODO]"
         return 0
+    
 
 class RigelOllama(Rigel): # RIGEL with ollama backend
     def __init__(self, model_name: str = "llama3.2"):
