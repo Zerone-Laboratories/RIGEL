@@ -8,7 +8,7 @@ from langchain_groq import ChatGroq
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
 hello_string = "Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]\n"
 
-class Rigel: # RIGEL Super Class. Use this to create derived classes for Thinking, MCP, Vision, etc.
+class Rigel: # RIGEL Super Class. Use this to create derived classes
     def __init__(self, model_name: str = "llama3.2", chatmode: str = "ollama"):
         self.model = model_name
         self.chatmode = chatmode
