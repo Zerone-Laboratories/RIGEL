@@ -1,3 +1,81 @@
+"""
+RIGEL V4.0 - Main Source
+                                                                              :::::   :::::                                                                              
+                                                                        ::                     ::                                                                        
+                                                                     :                             :                                                                     
+                                                                  :                                   :                                                                  
+                                                               :                                         :                                                               
+                                                             :                                             :                                                             
+                                                           :                                                 :                                                           
+                                                           :                                                 :                                                           
+                                                                                                                                                                         
+                                                                         ::::               ::::                                                                         
+                                                            :       ::                             ::       :                                                            
+                                                                :                                       :                                                                
+                                                            ::                                             ::                                                            
+                                                         ::  :                                             :  ::                                                         
+                                                       :     :                                             :     :                                                       
+                                                    :               :::::::::                   :::                 :                                                    
+                                                  :           :::::::    :::::::::::::::::::::         ::::           :                                                  
+                                                :         ::  :::  :::::::::::::::::   :::::::::::::::    :  ::         :                                                
+                                                      ::    ::::::::::                             :::::::::     ::                                                      
+                                            :      :     :::::::                    ::::                 :::: ::     ::     :                                            
+                                          :    ::    :: ::::   :       ::::            ::      :::       :   ::   ::     :    :                                          
+                                         :  :     :   :::       : ::                      :          :: :        ::   :     :  :                                         
+                                         ::    :   :  :       :::                           :           :::          :   :    ::                                         
+                                       :  : :   :    :    :     :                             :         :     :         :   : :  :                                       
+                                    :    :::  :     :  :                                                         :         : :::    :                                    
+                                  :    :   ::      ::            :                                     :            :       ::   :    :                                  
+                                     :   :  :    ::                                                                   :     :      :                                     
+                             :    :   :        :::                              :::::::::            ::                  :        :   :    :                             
+                           :    :   :        :: :                 :         :::::       :::::         ::                  ::        :   :    :                           
+                         :    :   :        :  ::                         ::::               ::::         :                :  :        :   :    :                         
+                       :   ::   :        :    ::                   :   :::                     :::   :     :                   :        :   :    :                       
+                     :        :        :                           :::::                         :: ::       :                   :        :        :                     
+                            ::       :          :                  ::                               :::        :        :          :       ::                            
+                  :           :    :             :                  :                               :                  :             :    :                              
+                :        :     :           :                   :         :::                 :::                  :                    : :              :                
+              :        :        :         :                  :    : :::                            :: :    :        ::                  :        :        :              
+                     :        :                             :   ::                                     ::            ::                   :        :                     
+           :        :                               :     :   ::      :                           :      :::  :     :                                        :           
+         :        :        :            :            :   : :                                                 :::   :                         :        :        :         
+        :                            :                 ::                                                       ::         :       :                            :        
+      :        :        :             ::              ::                :                       :                ::          :    :             :        :        :      
+                                      :             ::                                                             ::                                                    
+   :        :        :                   :        : :      :             :                     :             :      : :        ::                  :        :        :   
+  :        :                         :          :  :      :                                                   :      :  :         :                          :        :  
+:        :        :                 :       : :   :       :                                                   :       :   : :      :                                     
+ :        :        :                        ::                                                                             ::                        :        :        : 
+                                       :   :   :                                            :                            :   :   :                                       
+    :        :        :                  :             :                     :             :                     :             :                           :        :    
+                       :                          :   :        :                          :              :        :   :                          :                       
+       :        :                     :     :       :: :        :               :       :               :        : ::       :     :                     :        :       
+                          :          :        :      :: :                         :   :                           ::      :                   :                          
+          :        :        :                           :::        :                                 :         ::                                    :        :          
+            :                :    :              :        ::         :                             :         ::        :              :    :                :            
+                      :        :                   :        ::                                             ::        :                   :        :        :             
+               :        :       :                    :        :::                                       :::        :                    :       :        :               
+                 :            :   :               :    :        :  :       :                 :       :  :        :    :               :   :            :                 
+                           : :      :                ::::             ::       ::       ::       ::             : ::                :      : :                           
+                    :       ::        :                  :::                :::  :::::::  ::::               :::                  :        ::       :                    
+                      :    :: ::        :                   ::::      :                           :      ::::                   :        :: :     :                      
+                        :      :::        :                   :     :::::::                   :::::::     :                   :        :::      :                        
+                          :       :::       :                   :         :::::::::::::::::::::         :                   :       :::       :                          
+                            :       :::       :                   :               :::::               :                   :       :::       :                            
+                                       :::       :                                                                      :      :::        :                              
+                                 :       ::::      :                                                                 :      ::::       :                                 
+                                   :        :::::     :                :                                          :     :::::        :                                   
+                                     ::        :   ::   ::               :                     :               ::   ::   :         :                                     
+                                        :         :     ::::::             :                 :             ::::::     :         :                                        
+                                           :         :       ::::::          :             :          ::::::       :         :                                           
+                                              :         ::         :::::::::  :::       :::  ::::::::::        ::         :                                              
+                                                 :          ::            :::::::::::::::::::::            ::          :                                                 
+                                                    ::           ::                :::                ::           ::                                                    
+                                                        ::             :::                     :::             ::                                                        
+                                                             ::                                           ::                                                             
+                                                                  :::                               :::                                                                  
+                                                                           ::::::::: :::::::::                      
+"""
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from logger import SysLog
@@ -15,6 +93,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.llm = None
         self.messages = None
         self.chain = None
+        self.thought_prompt = None
 
     def inference(self, messages: list, model: str = None):
         self.messages = messages
@@ -23,7 +102,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         [
             (
                 "system",
-                "You are a helpful assistant that translates {input_language} to {output_language}.",
+                "SystemPrompt goes here",
             ),
             (   "human", "{input}"
             ),
@@ -40,8 +119,21 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         return 0
     
     def think(self, think_message, model: str = None):
-        "[TODO]"
-        return 0
+        self.thought_prompt = f"""
+        Think of the best way to do this and list it out in a short manner. nothing more or nothing less.
+        """
+        self.prompt = [
+            (
+                "system",
+                self.thought_prompt,
+            ),
+            (
+                "human",
+                think_message,
+            ),
+        ]
+        output = self.inference(self.prompt)
+        return output
     
     def decision(self, decision_message, model: str = None):
         "[TODO]"
