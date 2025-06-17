@@ -1,0 +1,7 @@
+2025-06-17 10:23:33,767 - RigelEngine - INFO - Started Rigel with model: llama3.2
+2025-06-17 10:23:33,768 - RigelEngine - DEBUG - Example Inference :[('system', 'You are RIGEL, a helpful assistant'), ('human', "Say Hello Earth, Let's get the party started!")]
+2025-06-17 10:24:05,907 - RigelEngine - INFO - Started Rigel with model: llama3.2
+2025-06-17 10:24:05,907 - RigelEngine - DEBUG - Example Inference :[('system', 'You are RIGEL, a helpful assistant'), ('human', "Say Hello Earth, Let's get the party started!")]
+2025-06-17 10:24:45,545 - RigelEngine - DEBUG - Hello Earth!
+
+Party time is indeed the best time! I'm Rigel, your friendly AI assistant, and I'm here to help make your day brighter. What's on the playlist? Do you need any recommendations for music, movies, or fun activities to get this party started? Let's get this planet party going!
