@@ -1,5 +1,9 @@
 # RIGEL
 
+<div align="center">
+  <img src="assets/rigel_logo.png" alt="RIGEL Logo" width="300"/>
+</div>
+
 > Rigel Engine v4.0
 
 An opensource Agentic Assistant with multi-backend LLM support, designed for flexible AI inference and decision-making capabilities.
