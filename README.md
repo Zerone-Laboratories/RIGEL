@@ -20,11 +20,11 @@ Agentic based clients
 |---------|--------|
 | Inference with Ollama | ✓ |
 | Inference with Groq | ✓ |
-| Thinking | - |
+| Thinking | ✓ |
 | MCP | - |
 | Dbus Server | - |
 | RAG | - |
-| Memory | - |
+| Memory | ✓ |
 
 
 ## Features
