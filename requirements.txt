@@ -1,0 +1,9 @@
+langchain-ollama
+langchain-groq
+langchain-core
+langgraph
+chromadb
+pypdf
+pydbus
+pygobject
+colorama

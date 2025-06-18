@@ -78,7 +78,7 @@ RIGEL V4.0 - Main Source
 """
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
-from logger import SysLog
+from core.logger import SysLog
 import os
 import getpass
 from langchain_ollama import ChatOllama

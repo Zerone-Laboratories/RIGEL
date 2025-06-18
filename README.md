@@ -22,8 +22,8 @@ Agentic based clients
 | Inference with Groq | ✓ |
 | Thinking | ✓ |
 | MCP | - |
-| Dbus Server | - |
-| RAG | - |
+| Dbus Server | Partial |
+| RAG | Partial |
 | Memory | ✓ |
 
 
@@ -66,7 +66,7 @@ source .venv/bin/activate  # On Linux/macOS
 
 3. Install dependencies:
 ```bash
-pip install langchain-ollama langchain-groq langchain-core
+pip install -r requirements.txt
 ```
 
 4. For Ollama backend, ensure Ollama is installed and running:
@@ -76,6 +76,15 @@ curl -fsSL https://ollama.ai/install.sh | sh
 
 # Pull the default model
 ollama pull llama3.2
+```
+
+5. For D-Bus functionality (Linux only), ensure system dependencies:
+```bash
+# Ubuntu/Debian
+sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-3.0
+
+# Fedora/RHEL
+sudo dnf install python3-gobject python3-gobject-cairo gtk3-devel
 ```
 
 ## Quick Start
@@ -122,6 +131,39 @@ response = rigel.inference(messages=messages)
 print(response.content)
 ```
 
+### Usage with Memory
+
+```python
+from core.rigel import RigelOllama
+
+# Initialize RIGEL with Ollama backend
+rigel = RigelOllama(model_name="llama3.2")
+
+# Define your messages with memory support
+messages = [
+    ("human", "My name is John. Remember this!"),
+]
+
+# Get response with memory
+response = rigel.inference_with_memory(messages=messages, thread_id="conversation1")
+print(response.content)
+
+# Continue conversation - RIGEL will remember previous context
+follow_up = [
+    ("human", "What's my name?"),
+]
+
+response2 = rigel.inference_with_memory(messages=follow_up, thread_id="conversation1")
+print(response2.content)  # Should remember the name is John
+
+# Get conversation history
+history = rigel.get_conversation_history(thread_id="conversation1")
+print(f"Conversation has {len(history)} messages")
+
+# Clear memory when needed
+rigel.clear_memory(thread_id="conversation1")
+```
+
 ## Project Structure
 
 ```
@@ -129,10 +171,14 @@ RIGEL_SERVICE/
 ├── core/
 │   ├── rigel.py          # Main RIGEL engine classes
 │   ├── logger.py         # Logging utilities
+│   ├── rdb.py            # RAG database functionality
 │   └── *.log             # Log files
-├── server.py             # Server implementation (in development)
+├── server.py             # D-Bus server implementation
+├── requirements.txt      # Python dependencies
 ├── Prototyping/          # Experimental features
 ├── Research/             # Research and documentation
+│   ├── client.py         # Example D-Bus client
+│   └── dbus_test.py      # D-Bus testing utilities
 └── README.md            # This file
 ```
 
@@ -145,7 +191,10 @@ The superclass for all RIGEL implementations.
 
 **Methods:**
 - `inference(messages: list, model: str = None)` - Perform inference with given messages
-- `think(think_message, model: str = None)` - [TODO] Advanced thinking capabilities
+- `inference_with_memory(messages: list, model: str = None, thread_id: str = "default")` - Perform inference with conversation memory
+- `get_conversation_history(thread_id: str = "default")` - Retrieve conversation history for a thread
+- `clear_memory(thread_id: str = "default")` - Clear memory for a specific conversation thread
+- `think(think_message, model: str = None)` - Advanced thinking capabilities
 - `decision(decision_message, model: str = None)` - [TODO] Decision-making capabilities
 
 #### `RigelOllama`
@@ -170,6 +219,59 @@ messages = [
     ("human", "User message here"),
     ("assistant", "Assistant response here"),  # Optional
 ]
+```
+
+## RAG (Retrieval-Augmented Generation)
+
+RIGEL includes basic RAG functionality using ChromaDB:
+
+### Using RAG
+
+```python
+from core.rdb import DBConn
+
+# Initialize database connection
+db = DBConn()
+
+# Load data from PDF
+db.load_data_from_pdf_path("path/to/document.pdf")
+
+# Load data from text file
+db.load_data_from_txt_path("path/to/document.txt")
+
+# Perform similarity search
+results = db.run_similar_serch("your search query")
+print(results)
+```
+
+## D-Bus Server
+
+RIGEL includes a D-Bus server implementation for inter-process communication:
+
+### Running the D-Bus Server
+
+```bash
+python server.py
+```
+
+The server will prompt you to choose between Groq (1) or Ollama (2) backend.
+
+### D-Bus Interface Details
+
+- **Service Name**: `com.rigel.RigelService`
+- **Interface**: `com.rigel.RigelService`
+- **Method**: `Query(query: str) -> str`
+
+### Using the D-Bus Client
+
+```python
+from pydbus import SessionBus
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+response = service.Query("Hello RIGEL!")
+print(response)
 ```
 
 ## Environment Variables
