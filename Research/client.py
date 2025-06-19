@@ -8,7 +8,7 @@ def test_rigel_service():
         
         # Test basic query
         while True:
-            response = service.Query(input("Enter Query: "))
+            response = service.QueryWithMemory(input("Enter Query: "), "zeronebrain")
             print(f"RIGEL: {response}")
         
     except Exception as e:
