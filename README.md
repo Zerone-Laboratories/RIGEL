@@ -274,6 +274,31 @@ response = service.Query("Hello RIGEL!")
 print(response)
 ```
 
+### Aavailable Dbus Endpoints [Currently]
+
+#### Core Inference Endpoints
+
+- **`Query(query: str) -> str`**
+  - **Description**: Performs basic inference with the configured backend
+  - **Parameters**: `query` - The user's message/question
+  - **Returns**: AI response as string
+  - **Example**: 
+    ```python
+    response = service.Query("What is artificial intelligence?")
+    ```
+
+- **`QueryWithMemory(query: str, thread_id: str) -> str`**
+  - **Description**: Performs inference with conversation memory
+  - **Parameters**: 
+    - `query` - The user's message/question
+    - `thread_id` - Unique identifier for conversation thread
+  - **Returns**: AI response as string with context awareness
+  - **Example**:
+    ```python
+    response = service.QueryWithMemory("My name is Alice", "user123")
+    follow_up = service.QueryWithMemory("What's my name?", "user123")
+    ```
+
 ## Environment Variables
 
 - `GROQ_API_KEY`: Required for Groq backend usage

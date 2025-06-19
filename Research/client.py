@@ -7,12 +7,9 @@ def test_rigel_service():
         service = bus.get("com.rigel.RigelService")
         
         # Test basic query
-        response = service.Query("Hello RIGEL! How are you?")
-        print(f"RIGEL: {response}")
-        
-        # Test another query
-        response2 = service.Query("What is the capital of France?")
-        print(f"RIGEL: {response2}")
+        while True:
+            response = service.Query(input("Enter Query: "))
+            print(f"RIGEL: {response}")
         
     except Exception as e:
         print(f"Error connecting to RIGEL service: {e}")
