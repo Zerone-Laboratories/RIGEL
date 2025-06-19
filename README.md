@@ -299,6 +299,15 @@ print(response)
     follow_up = service.QueryWithMemory("What's my name?", "user123")
     ```
 
+- **`Think(think_message: str) -> str`**
+  - **Description**: Performs advanced thinking/reasoning operations
+  - **Parameters**: `think_message` - The problem or scenario to think about
+  - **Returns**: AI reasoning response as string
+  - **Example**:
+    ```python
+    response = service.Think("How should I approach solving this complex problem?")
+    ```
+
 ## Environment Variables
 
 - `GROQ_API_KEY`: Required for Groq backend usage

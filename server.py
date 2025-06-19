@@ -16,6 +16,15 @@ class RigelServer(object):
                 <arg type='s' name='query' direction='in'/>
                 <arg type='s' name='response' direction='out'/>
             </method>
+            <method name='QueryWithMemory'>
+                <arg type='s' name='query' direction='in'/>
+                <arg type='s' name='id' direction='in'/>
+                <arg type='s' name='response' direction='out'/>
+            </method>
+            <method name='QueryThink'>
+                <arg type='s' name='query' direction='in'/>
+                <arg type='s' name='response' direction='out'/>
+            </method>
         </interface>
     </node>
     """
@@ -32,20 +41,8 @@ class RigelServer(object):
             )
         ]
         response = rigel.inference(messages=messages)
-        print(response)
+        # print(response)
         return response.content
-    
-    """
-    <node>
-        <interface name='com.rigel.RigelService'>
-            <method name='Query_with_memory'>
-                <arg type='s' name='query' direction='in'/>
-                <arg type='s' name='id' direction='in'/>
-                <arg type='s' name='response' direction='out'/>
-            </method>
-        </interface>
-    </node>
-    """
 
     def QueryWithMemory(self, query, id):
         global system_prompt, rigel
@@ -58,32 +55,14 @@ class RigelServer(object):
                 "human", f"{query}"
             )
         ]
-        rigel.inference_with_memory(messages=messages, thread_id=id)
-    # """
-    # <node>
-    #     <interface name='com.rigel.RigelService'>
-    #         <method name='Query_with_memory'>
-    #             <arg type='s' name='query' direction='in'/>
-    #             <arg type='s' name='query' direction='in'/>
-    #             <arg type='s' name='response' direction='out'/>
-    #         </method>
-    #     </interface>
-    # </node>
-    # """
-
-    # def Query_with_memory(self, query):
-    #     global system_prompt, rigel
-    #     messages = [
-    #         (
-    #             "system",
-    #             f"{system_prompt}"
-    #         ),
-    #         (
-    #             "human", f"{query}"
-    #         )
-    #     ]
-    #     response = rigel.inference(messages=messages)
-    #     return response.content
+        response = rigel.inference_with_memory(messages=messages, thread_id=id)
+        # print(response)
+        return response.content
+    
+    def QueryThink(self, query):
+        global rigel
+        response = rigel.inference(messages=query)
+        return response
 
 
 if __name__ == "__main__":
