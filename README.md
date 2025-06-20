@@ -4,13 +4,19 @@
   <img src="assets/rigel_logo.png" alt="RIGEL Logo" width="300"/>
 </div>
 
-> Rigel Engine v4.0.X [Developer Beta]
+> Zerone Laboratories - Rigel Engine v4.0.X [Developer Beta]
 
-An effort to make it easier for the opensource community to build your own Virtual Assistant Without headaches...
+An open-source Hybrid Agentic + Virtual Assistant
+Powered by multiple LLM backends, designed for flexible AI inference and decision-making.
 
-An opensource Hybrid Multiagentic+Virtual Assistant with multi-backend LLM support, designed for flexible AI inference and decision-making capabilities.
+- Agentic reasoning + natural conversation
+- Plug-and-play multi-LLM support
+- DBus interface for OS-level integration
+- Modular, extensible, and developer-friendly
+- Build it. Hack it. Make it yours.
 
-! RIGEL Engine is still in developer-beta stage. The code will be well structured in the public release and More features will be added !
+> [!WARNING]
+> RIGEL Engine is still in developer-beta stage. The code will be well structured in the public release and more features will be added!
 
 ## Overview
 
@@ -32,9 +38,6 @@ Agentic based clients
 | Local Voice Recognition | - |
 | Local Voice Synthesis | - |
 | Multiple Request Handling | Un-Tested |
-
-
-
 
 
 ## Features
@@ -532,4 +535,6 @@ For support, please open an issue in the GitHub repository or contact Zerone Lab
 
 ---
 
-**Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]** 
+An effort to make it easier for the opensource community to build your own Virtual Assistant.
+
+**Zerone Laboratories Systems - RIGEL Engine v4.0.X[Dev]** 
