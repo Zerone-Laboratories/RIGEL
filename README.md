@@ -8,6 +8,8 @@
 
 An opensource Hybrid Multiagentic+Virtual Assistant with multi-backend LLM support, designed for flexible AI inference and decision-making capabilities.
 
+! RIGEL Engine is still in developer-beta stage. The code will be well structured in the public release and More features will be added !
+
 ## Overview
 
 RIGEL is a powerful multi-agentic engine that provides a unified interface for multiple language model backends. Built with extensibility in mind, it supports both local inference via Ollama and cloud-based inference through Groq. Aims to act as a central server for multiple 
