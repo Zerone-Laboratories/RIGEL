@@ -4,6 +4,8 @@
   <img src="assets/rigel_logo.png" alt="RIGEL Logo" width="300"/>
 </div>
 
+Hello World !
+
 > Zerone Laboratories - Rigel Engine v4.0.X [Developer Beta]
 
 An open-source Hybrid Agentic + Virtual Assistant
