@@ -16,7 +16,7 @@ Powered by multiple LLM backends, designed for flexible AI inference and decisio
 - Build it. Hack it. Make it yours.
 
 > [!WARNING]
-> RIGEL Engine is still in developer-beta stage. The code will be well structured in the public release and more features will be added!
+> RIGEL Engine is still in developer-beta stage. Bugs may present. The code will be well structured in the public release and more features will be added!.
 
 ## Overview
 

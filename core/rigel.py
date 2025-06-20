@@ -1,3 +1,19 @@
+# This file is part of RIGEL_ENGINE.
+#
+# RIGEL_ENGINE is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# RIGEL_ENGINE is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+
 __RIGEL = """
 RIGEL V4.0 - Main Source
                                                                               :::::   :::::                                                                              
@@ -414,7 +430,7 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         return super().inference(messages)
     
 
-
+# Some Demos
 if __name__ == "__main__":
     print(hello_string)
     rigel = RigelOllama(model_name="llama3.2")
