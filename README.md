@@ -527,7 +527,17 @@ Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 ## License
 
-This project is open source. Please check the LICENSE file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+This means you can:
+- Use the software for any purpose
+- Study and modify the source code
+- Share copies of the software
+- Share modified versions
+
+However, if you run a modified version on a server and provide network services, you must also provide the source code of your modifications to users of that service.
+
+See the [LICENSE](LICENSE) file for the full license text.
 
 ## Support
 

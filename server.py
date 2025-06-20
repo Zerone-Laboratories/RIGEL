@@ -1,5 +1,7 @@
 # This file is part of RIGEL_ENGINE.
 #
+# Copyright (C) 2025 Zerone Laboratories
+#
 # RIGEL_ENGINE is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published
 # by the Free Software Foundation, either version 3 of the License, or
@@ -50,9 +52,25 @@ class RigelServer(object):
                 <arg type='s' name='query' direction='in'/>
                 <arg type='s' name='response' direction='out'/>
             </method>
+            <method name='GetLicenseInfo'>
+                <arg type='s' name='license_info' direction='out'/>
+            </method>
         </interface>
     </node>
     """
+
+    def GetLicenseInfo(self):
+        """Return license information for AGPL compliance"""
+        import json
+        license_info = {
+            "name": "RIGEL Engine",
+            "version": "4.0.X",
+            "license": "GNU Affero General Public License v3.0",
+            "source": "https://github.com/Zerone-Laboratories/RIGEL",
+            "copyright": "Copyright (C) 2025 Zerone Laboratories",
+            "agpl_notice": "This program is free software under AGPL-3.0. If you run a modified version as a network service, you must provide source code to users."
+        }
+        return json.dumps(license_info, indent=2)
 
     def Query(self, query):
         global system_prompt, rigel
@@ -102,6 +120,10 @@ class RigelServer(object):
 
 if __name__ == "__main__":
     print("RIGEL Experimental DBUS Interface")
+    print("Copyright (C) 2025 Zerone Laboratories")
+    print("Licensed under GNU Affero General Public License v3.0")
+    print("This is free software; see the source for copying conditions.")
+    print("")
     print("Select Required Backend :")
     backend_choice = int(input("Select '1' for GROQ and '2' for OLLAMA "))
     
@@ -123,6 +145,7 @@ if __name__ == "__main__":
     print("  - QueryWithMemory: Inference with conversation memory")
     print("  - QueryThink: Advanced thinking capabilities")
     print("  - QueryWithTools: Inference with MCP tools support")
+    print("  - GetLicenseInfo: Display license and copyright information")
     print("Press Ctrl+C to stop")
 
     loop = GLib.MainLoop()
