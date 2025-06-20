@@ -27,6 +27,8 @@ Agentic based clients
 | Memory | ✓ |
 | Local Voice Recognition | - |
 | Local Voice Synthesis | - |
+| Multiple Request Handling | Un-Tested |
+
 
 
 
