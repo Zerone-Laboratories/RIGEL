@@ -25,6 +25,10 @@ Agentic based clients
 | Dbus Server | Partial |
 | RAG | Partial |
 | Memory | ✓ |
+| Local Voice Recognition | - |
+| Local Voice Synthesis | - |
+
+
 
 
 ## Features
