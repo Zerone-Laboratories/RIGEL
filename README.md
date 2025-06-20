@@ -4,9 +4,9 @@
   <img src="assets/rigel_logo.png" alt="RIGEL Logo" width="300"/>
 </div>
 
-> Rigel Engine v4.0
+> Rigel Engine v4.0.X [Developer Beta]
 
-An opensource Agentic Assistant with multi-backend LLM support, designed for flexible AI inference and decision-making capabilities.
+An opensource Hybrid Multiagentic+Virtual Assistant with multi-backend LLM support, designed for flexible AI inference and decision-making capabilities.
 
 ## Overview
 
@@ -21,8 +21,8 @@ Agentic based clients
 | Inference with Ollama | ✓ |
 | Inference with Groq | ✓ |
 | Thinking | ✓ |
-| MCP | - |
-| Dbus Server | Partial |
+| MCP | ✓ |
+| Dbus Server | ✓ |
 | RAG | Partial |
 | Memory | ✓ |
 | Local Voice Recognition | - |
@@ -34,10 +34,14 @@ Agentic based clients
 ## Features
 
 - **Multi-Backend Support**: Seamlessly switch between Ollama (local) and Groq (cloud) backends. More backends will be integrated in future
+- **D-Bus Server Integration**: Inter-process communication via D-Bus for system-wide AI assistance
+- **MCP (Model Context Protocol) Tools**: Extended AI capabilities with system-level operations including file management, system commands, and real-time information access
 - **Extensible Architecture**: Built with a superclass design for easy extension to new capabilities
+- **Memory Management**: Persistent conversation memory with thread-based organization
+- **Advanced Thinking**: Sophisticated reasoning and decision-making capabilities
 - **Comprehensive Logging**: Integrated logging system for debugging and monitoring
 - **Flexible Inference**: Support for custom prompts and message formats
-- **Future-Ready**: Designed for upcoming features like vision, MCP (Model Context Protocol), and advanced thinking capabilities
+- **RAG Support**: Retrieval-Augmented Generation using ChromaDB for document-based AI interactions
 
 ## Supported Backends
 
@@ -92,6 +96,43 @@ sudo dnf install python3-gobject python3-gobject-cairo gtk3-devel
 ```
 
 ## Quick Start
+
+### D-Bus Server (Main Feature)
+
+RIGEL's primary interface is through its D-Bus server, providing system-wide AI assistance with advanced tool capabilities.
+
+#### Starting the D-Bus Server
+
+```bash
+python server.py
+```
+
+The server will prompt you to choose between Groq (1) or Ollama (2) backend.
+
+#### Using the D-Bus Service
+
+```python
+from pydbus import SessionBus
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# Basic query
+response = service.Query("Hello RIGEL!")
+print(response)
+
+# Query with memory (remembers conversation context)
+response = service.QueryWithMemory("My name is Alice", "user123")
+follow_up = service.QueryWithMemory("What's my name?", "user123")
+
+# Advanced thinking capabilities
+response = service.QueryThink("How should I approach solving this complex problem?")
+
+# Query with MCP tools (file operations, system commands, etc.)
+response = service.QueryWithTools("What time is it and list the files in the current directory?")
+response = service.QueryWithTools("Read the README.md file and summarize its contents")
+response = service.QueryWithTools("Check the system uptime and current user")
+```
 
 ### Basic Usage with Ollama
 
@@ -176,6 +217,8 @@ RIGEL_SERVICE/
 │   ├── rigel.py          # Main RIGEL engine classes
 │   ├── logger.py         # Logging utilities
 │   ├── rdb.py            # RAG database functionality
+│   ├── mcp/              # MCP (Model Context Protocol) tools
+│   │   └── rigel_tools_server.py  # MCP server implementation
 │   └── *.log             # Log files
 ├── server.py             # D-Bus server implementation
 ├── requirements.txt      # Python dependencies
@@ -248,25 +291,50 @@ results = db.run_similar_serch("your search query")
 print(results)
 ```
 
-## D-Bus Server
+## MCP (Model Context Protocol) Tools
 
-RIGEL includes a D-Bus server implementation for inter-process communication:
+RIGEL includes comprehensive MCP support that significantly extends the AI's capabilities with real-world system operations. The MCP server provides a secure bridge between the AI and your system, enabling file operations, command execution, and system information retrieval.
 
-### Running the D-Bus Server
+### Key MCP Capabilities
+
+#### 🛠️ System Operations
+- **Real-time Information**: Get current time, system information, and user environment details
+- **Command Execution**: Safely execute shell commands with output capture
+- **Process Management**: Monitor and interact with system processes
+
+#### 📁 File Management
+- **File I/O**: Read from and write to any accessible file on the system
+- **Directory Navigation**: List and explore directory structures
+- **Content Analysis**: AI can analyze file contents and provide insights
+
+#### 🔧 Advanced Features
+- **Secure Execution**: All operations run within controlled boundaries
+- **Error Handling**: Robust error reporting and recovery mechanisms
+- **Real-time Integration**: Seamless integration with AI reasoning
+
+### Starting the MCP Server
+
+The MCP server is automatically started when using the `QueryWithTools` endpoint, but you can also run it manually for debugging:
 
 ```bash
-python server.py
+python core/mcp/rigel_tools_server.py
 ```
 
-The server will prompt you to choose between Groq (1) or Ollama (2) backend.
+### Available MCP Tools
 
-### D-Bus Interface Details
+#### System Operations
+- **`current_time()`** - Get current system date and time
+- **`get_system_info()`** - Retrieve system information (user, home directory, shell, OS details)
+- **`run_system_command(command)`** - Execute shell commands safely with output capture
 
-- **Service Name**: `com.rigel.RigelService`
-- **Interface**: `com.rigel.RigelService`
-- **Method**: `Query(query: str) -> str`
+#### File Operations
+- **`read_file(file_path)`** - Read contents of any accessible file
+- **`write_file(file_path, content)`** - Write content to files (creates directories if needed)
+- **`list_directory(directory_path)`** - List directory contents with file type indicators
 
-### Using the D-Bus Client
+### MCP Usage Examples
+
+#### Through D-Bus Service (Recommended)
 
 ```python
 from pydbus import SessionBus
@@ -274,11 +342,66 @@ from pydbus import SessionBus
 bus = SessionBus()
 service = bus.get("com.rigel.RigelService")
 
-response = service.Query("Hello RIGEL!")
+# System information and time
+response = service.QueryWithTools("What time is it and what system am I running on?")
+print(response)
+
+# File operations
+response = service.QueryWithTools("Read the README.md file and give me a brief summary")
+print(response)
+
+# Directory exploration
+response = service.QueryWithTools("List all Python files in the current directory")
+print(response)
+
+# System commands
+response = service.QueryWithTools("Check disk usage and system uptime")
+print(response)
+
+# Advanced combinations
+response = service.QueryWithTools(
+    "Check the current time, list files in /home, and tell me about the system I'm running"
+)
 print(response)
 ```
 
-### Aavailable Dbus Endpoints [Currently]
+#### Direct Python Usage
+
+```python
+from core.rigel import RigelOllama
+
+# Initialize RIGEL with MCP support
+rigel = RigelOllama(model_name="llama3.2")
+
+# Define messages that require tool usage
+messages = [
+    ("system", "You are RIGEL with access to system tools. Use them when appropriate."),
+    ("human", "What time is it and what files are in the current directory?"),
+]
+
+# Use inference_with_tools method (if available)
+response = rigel.inference(messages=messages)
+print(response.content)
+```
+
+### MCP Security Notes
+
+- All file operations respect system permissions
+- Commands are executed in a controlled environment
+- Sensitive operations require explicit user intent
+- Error handling prevents system damage
+
+## D-Bus Server
+
+RIGEL's D-Bus server provides a powerful system-wide interface for AI assistance, complete with advanced tool capabilities and memory management.
+
+### D-Bus Interface Details
+
+- **Service Name**: `com.rigel.RigelService`
+- **Interface**: `com.rigel.RigelService`
+- **Object Path**: `/com/rigel/RigelService`
+
+### Available D-Bus Endpoints
 
 #### Core Inference Endpoints
 
@@ -286,31 +409,92 @@ print(response)
   - **Description**: Performs basic inference with the configured backend
   - **Parameters**: `query` - The user's message/question
   - **Returns**: AI response as string
+  - **Use Case**: Simple AI interactions without memory or tools
   - **Example**: 
     ```python
     response = service.Query("What is artificial intelligence?")
     ```
 
 - **`QueryWithMemory(query: str, thread_id: str) -> str`**
-  - **Description**: Performs inference with conversation memory
+  - **Description**: Performs inference with persistent conversation memory
   - **Parameters**: 
     - `query` - The user's message/question
     - `thread_id` - Unique identifier for conversation thread
-  - **Returns**: AI response as string with context awareness
+  - **Returns**: AI response as string with full context awareness
+  - **Use Case**: Multi-turn conversations with context retention
   - **Example**:
     ```python
-    response = service.QueryWithMemory("My name is Alice", "user123")
-    follow_up = service.QueryWithMemory("What's my name?", "user123")
+    response = service.QueryWithMemory("My name is Alice and I'm a developer", "user123")
+    follow_up = service.QueryWithMemory("What do you know about me?", "user123")
     ```
 
-- **`Think(think_message: str) -> str`**
+- **`QueryThink(query: str) -> str`**
   - **Description**: Performs advanced thinking/reasoning operations
-  - **Parameters**: `think_message` - The problem or scenario to think about
-  - **Returns**: AI reasoning response as string
+  - **Parameters**: `query` - The problem or scenario requiring deep thought
+  - **Returns**: AI reasoning response with detailed analysis
+  - **Use Case**: Complex problem solving, analysis, and decision making
   - **Example**:
     ```python
-    response = service.Think("How should I approach solving this complex problem?")
+    response = service.QueryThink("I need to choose between two job offers. Help me think through this decision.")
     ```
+
+- **`QueryWithTools(query: str) -> str`**
+  - **Description**: Performs inference with full MCP (Model Context Protocol) tools support
+  - **Parameters**: `query` - The user's message/question that may require system operations
+  - **Returns**: AI response with tool execution results integrated
+  - **Use Case**: System administration, file management, real-time information
+  - **Available Tools**:
+    - `current_time()` - Get current date and time
+    - `run_system_command(command)` - Execute shell commands
+    - `read_file(path)` - Read file contents
+    - `write_file(path, content)` - Write content to files
+    - `list_directory(path)` - List directory contents
+    - `get_system_info()` - Get comprehensive system information
+  - **Example**:
+    ```python
+    response = service.QueryWithTools("What time is it?")
+    response = service.QueryWithTools("List files in the current directory and read the README")
+    response = service.QueryWithTools("Check system load and create a status report")
+    ```
+
+### Running the D-Bus Server
+
+```bash
+python server.py
+```
+
+The server will prompt you to choose between:
+1. **Groq** (Cloud-based, high performance)
+2. **Ollama** (Local, privacy-focused)
+
+### D-Bus Client Examples
+
+#### Basic Client Setup
+
+```python
+from pydbus import SessionBus
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+```
+
+#### Advanced Usage Patterns
+
+```python
+# Multi-modal conversation with memory
+thread_id = "project_discussion"
+service.QueryWithMemory("I'm working on a Python web scraping project", thread_id)
+service.QueryWithMemory("What libraries should I use?", thread_id)
+service.QueryWithMemory("Show me the project structure", thread_id)
+
+# System administration with tools
+service.QueryWithTools("Check system health: CPU, memory, disk usage")
+service.QueryWithTools("List all Python projects in my home directory")
+service.QueryWithTools("Create a backup script for my important files")
+
+# Complex reasoning
+service.QueryThink("Analyze the pros and cons of microservices vs monolithic architecture")
+```
 
 ## Environment Variables
 

@@ -5,3 +5,119 @@
 2025-06-17 10:24:45,545 - RigelEngine - DEBUG - Hello Earth!
 
 Party time is indeed the best time! I'm Rigel, your friendly AI assistant, and I'm here to help make your day brighter. What's on the playlist? Do you need any recommendations for music, movies, or fun activities to get this party started? Let's get this planet party going!
+2025-06-20 20:03:40,853 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:03:40,854 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:03:41,865 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:03:41,866 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:03:42,877 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:03:42,878 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:03:43,888 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:03:43,889 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:03:44,900 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:03:44,901 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:05:58,466 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:05:58,467 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:05:59,477 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:05:59,478 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:06:00,488 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:06:00,489 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:06:01,500 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:06:01,501 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:06:02,512 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:06:02,513 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:08:23,297 - RigelEngine - INFO - MCP client initialized successfully
+2025-06-20 20:08:25,324 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:08:25,324 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:08:26,353 - RigelEngine - INFO - MCP client initialized successfully
+2025-06-20 20:08:28,194 - RigelEngine - ERROR - Error in inference_with_tools: Error code: 400 - {'error': {'message': "Failed to call a function. Please adjust your prompt. See 'failed_generation' for more details.", 'type': 'invalid_request_error', 'code': 'tool_use_failed', 'failed_generation': '<tool-use>{"tool_calls": [\n\t{\n\t\t"id": "pending",\n\t\t"type": "function",\n\t\t"function": {\n\t\t\t"name": "list_directory"\n\t\t},\n\t\t"parameters": {\n\t\t\t"directory_path": "."\n\t\t}\n></tool-use>'}}
+2025-06-20 20:08:28,194 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:08:29,221 - RigelEngine - INFO - MCP client initialized successfully
+2025-06-20 20:08:31,063 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:08:31,063 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:08:32,094 - RigelEngine - INFO - MCP client initialized successfully
+2025-06-20 20:08:34,796 - RigelEngine - ERROR - Error in inference_with_tools: Error code: 400 - {'error': {'message': "Failed to call a function. Please adjust your prompt. See 'failed_generation' for more details.", 'type': 'invalid_request_error', 'code': 'tool_use_failed', 'failed_generation': '<tool-use>{"tool_calls": [\n    {\n        "id": "pending", \n        "function": {\n            "function", \n            "name": "read_file"\n        }, \n        "parameters": {\n            "file_path": "README.md"\n        }\n    }, \n    {\n        "id": "pending", \n        "type": "function", \n        "function": {\n            "name": "run_system_command"\n        }, \n        "parameters": {\n            "command": "head -n 5 README.md"\n        }\n    }\n] }</tool-use>'}}
+2025-06-20 20:08:34,796 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:09:23,046 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:09:23,047 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:09:24,057 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:09:24,058 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:09:25,069 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:09:25,070 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:09:26,080 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:09:26,081 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:09:27,092 - RigelEngine - ERROR - Failed to initialize MCP client: unhandled errors in a TaskGroup (1 sub-exception)
+2025-06-20 20:09:27,093 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:13:07,660 - RigelEngine - ERROR - Failed to initialize MCP client: 'MultiServerMCPClient' object has no attribute 'initialize'
+2025-06-20 20:13:07,660 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:13:08,662 - RigelEngine - ERROR - Failed to initialize MCP client: 'MultiServerMCPClient' object has no attribute 'initialize'
+2025-06-20 20:13:08,662 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:13:09,664 - RigelEngine - ERROR - Failed to initialize MCP client: 'MultiServerMCPClient' object has no attribute 'initialize'
+2025-06-20 20:13:09,664 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:13:10,666 - RigelEngine - ERROR - Failed to initialize MCP client: 'MultiServerMCPClient' object has no attribute 'initialize'
+2025-06-20 20:13:10,666 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:13:11,668 - RigelEngine - ERROR - Failed to initialize MCP client: 'MultiServerMCPClient' object has no attribute 'initialize'
+2025-06-20 20:13:11,668 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:25:46,120 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:25:54,108 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:25:54,108 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:26:43,466 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:26:43,466 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:27:19,443 - RigelEngine - INFO - Continuity breaker detected: Let me know what you'd like to do next.
+2025-06-20 20:27:19,443 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:31:50,875 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1642, 'total_tokens': 1648, 'completion_time': 0.072244574, 'prompt_time': 0.059725821, 'queue_time': 0.205620919, 'total_time': 0.131970395}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--560ad6f1-05cb-445a-9fa7-66e40eaea218-0' usage_metadata={'input_tokens': 1642, 'output_tokens': 6, 'total_tokens': 1648}
+2025-06-20 20:31:50,883 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:31:50,884 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:31:58,822 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1642, 'total_tokens': 1648, 'completion_time': 0.079913399, 'prompt_time': 0.062337119, 'queue_time': 0.209470877, 'total_time': 0.142250518}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--5caca86f-093f-4819-abcc-c792f83fda92-0' usage_metadata={'input_tokens': 1642, 'output_tokens': 6, 'total_tokens': 1648}
+2025-06-20 20:31:58,822 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:31:58,823 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:32:31,950 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1691, 'total_tokens': 1697, 'completion_time': 0.084927061, 'prompt_time': 0.061175213, 'queue_time': 0.209699032, 'total_time': 0.146102274}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--dbaa9765-7675-4362-873c-9a5401765eb3-0' usage_metadata={'input_tokens': 1691, 'output_tokens': 6, 'total_tokens': 1697}
+2025-06-20 20:32:31,950 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:32:31,950 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:40:08,622 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:40:10,595 - RigelEngine - INFO - Currently Processing: content='The current time is 2025-06-20 20:40:09.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 19, 'prompt_tokens': 1671, 'total_tokens': 1690, 'completion_time': 0.10130803, 'prompt_time': 0.062142608, 'queue_time': 0.21067409000000004, 'total_time': 0.163450638}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--b397ac13-7747-4a23-8850-791414f1f1c6-0' usage_metadata={'input_tokens': 1671, 'output_tokens': 19, 'total_tokens': 1690}
+2025-06-20 20:40:10,595 - RigelEngine - INFO - No continuity breaker detected. Current output: The current time is 2025-06-20 20:40:09.
+2025-06-20 20:40:10,595 - RigelEngine - INFO - Continuing with task execution (iteration 1)
+2025-06-20 20:40:10,595 - RigelEngine - INFO - Inference iteration 2
+2025-06-20 20:40:20,970 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1708, 'total_tokens': 1714, 'completion_time': 0.08423644, 'prompt_time': 0.063313901, 'queue_time': 0.21067272999999997, 'total_time': 0.147550341}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--6e4fba38-32cf-470c-aaf3-c53bdb68f452-0' usage_metadata={'input_tokens': 1708, 'output_tokens': 6, 'total_tokens': 1714}
+2025-06-20 20:40:20,971 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:40:20,971 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:40:21,993 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:40:53,809 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1673, 'total_tokens': 1679, 'completion_time': 0.082435531, 'prompt_time': 0.062429986, 'queue_time': 0.21025492499999998, 'total_time': 0.144865517}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--b43896cf-3429-4b21-9add-d4850058a339-0' usage_metadata={'input_tokens': 1673, 'output_tokens': 6, 'total_tokens': 1679}
+2025-06-20 20:40:53,813 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:40:53,813 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:40:54,836 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:41:28,215 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1718, 'total_tokens': 1724, 'completion_time': 0.084385192, 'prompt_time': 0.063534, 'queue_time': 0.211191254, 'total_time': 0.147919192}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--934772cf-415c-4e5b-8350-1158452c0981-0' usage_metadata={'input_tokens': 1718, 'output_tokens': 6, 'total_tokens': 1724}
+2025-06-20 20:41:28,215 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:41:28,215 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:41:29,238 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:42:01,316 - RigelEngine - INFO - Currently Processing: content="Let me know what you'd like to do next." additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 12, 'prompt_tokens': 1692, 'total_tokens': 1704, 'completion_time': 0.100745917, 'prompt_time': 0.062877902, 'queue_time': 0.21007235800000001, 'total_time': 0.163623819}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--ab61b87f-debb-4305-90a9-012f2adc91f8-0' usage_metadata={'input_tokens': 1692, 'output_tokens': 12, 'total_tokens': 1704}
+2025-06-20 20:42:01,316 - RigelEngine - INFO - Continuity breaker detected: Let me know what you'd like to do next.
+2025-06-20 20:42:01,316 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:42:02,342 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:42:52,291 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1805, 'total_tokens': 1811, 'completion_time': 0.093662982, 'prompt_time': 0.066659265, 'queue_time': 0.20747364, 'total_time': 0.160322247}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--94d73dea-c2ef-4f47-80e3-ed2a9487fbfb-0' usage_metadata={'input_tokens': 1805, 'output_tokens': 6, 'total_tokens': 1811}
+2025-06-20 20:42:52,291 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:42:52,291 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:45:25,133 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:45:26,754 - RigelEngine - INFO - Currently Processing: content='The current time is 2025-06-20 20:45:26.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 19, 'prompt_tokens': 1671, 'total_tokens': 1690, 'completion_time': 0.099351362, 'prompt_time': 0.063343243, 'queue_time': 0.20588133600000003, 'total_time': 0.162694605}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--81fcc9fe-3491-441a-8aca-d5e2f0c1c122-0' usage_metadata={'input_tokens': 1671, 'output_tokens': 19, 'total_tokens': 1690}
+2025-06-20 20:45:26,754 - RigelEngine - INFO - No continuity breaker detected. Current output: The current time is 2025-06-20 20:45:26.
+2025-06-20 20:45:26,754 - RigelEngine - INFO - Continuing with task execution (iteration 1)
+2025-06-20 20:45:26,755 - RigelEngine - INFO - Inference iteration 2
+2025-06-20 20:45:27,327 - RigelEngine - INFO - Currently Processing: content="Let me know what you'd like to do next." additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 12, 'prompt_tokens': 1704, 'total_tokens': 1716, 'completion_time': 0.100955007, 'prompt_time': 0.063180916, 'queue_time': 0.205456094, 'total_time': 0.164135923}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--5da05481-efac-40a4-af77-fb7eae942957-0' usage_metadata={'input_tokens': 1704, 'output_tokens': 12, 'total_tokens': 1716}
+2025-06-20 20:45:27,327 - RigelEngine - INFO - Continuity breaker detected: Let me know what you'd like to do next.
+2025-06-20 20:45:27,327 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:45:28,349 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:45:36,936 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1673, 'total_tokens': 1679, 'completion_time': 0.081120836, 'prompt_time': 0.062731213, 'queue_time': 0.205583672, 'total_time': 0.143852049}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--01e22e07-baec-41d0-839e-7dc9e7dac1bd-0' usage_metadata={'input_tokens': 1673, 'output_tokens': 6, 'total_tokens': 1679}
+2025-06-20 20:45:36,936 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:45:36,937 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:45:37,959 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:46:27,344 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1728, 'total_tokens': 1734, 'completion_time': 0.073693103, 'prompt_time': 0.063989135, 'queue_time': 0.20843426699999998, 'total_time': 0.137682238}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--01dbb784-79e7-4b0c-b509-fd94409b6f8d-0' usage_metadata={'input_tokens': 1728, 'output_tokens': 6, 'total_tokens': 1734}
+2025-06-20 20:46:27,344 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:46:27,344 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:46:28,370 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:47:00,690 - RigelEngine - INFO - Currently Processing: content="Let me know what you'd like to do next." additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 12, 'prompt_tokens': 3437, 'total_tokens': 3449, 'completion_time': 0.176668153, 'prompt_time': 0.127577228, 'queue_time': -0.26008025999999995, 'total_time': 0.304245381}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--249754d7-4d7e-4aaa-b2ba-b29a4e6ad36a-0' usage_metadata={'input_tokens': 3437, 'output_tokens': 12, 'total_tokens': 3449}
+2025-06-20 20:47:00,690 - RigelEngine - INFO - Continuity breaker detected: Let me know what you'd like to do next.
+2025-06-20 20:47:00,690 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 20:47:01,724 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 20:48:09,215 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'token_usage': {'completion_tokens': 6, 'prompt_tokens': 1809, 'total_tokens': 1815, 'completion_time': 0.085892497, 'prompt_time': 0.066594297, 'queue_time': 0.05821271, 'total_time': 0.152486794}, 'model_name': 'llama3-70b-8192', 'system_fingerprint': 'fp_dd4ae1c591', 'finish_reason': 'stop', 'logprobs': None} id='run--3a632528-a055-47f5-89e4-cfcf0d516f1e-0' usage_metadata={'input_tokens': 1809, 'output_tokens': 6, 'total_tokens': 1815}
+2025-06-20 20:48:09,215 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 20:48:09,215 - RigelEngine - INFO - MCP client cleanup completed

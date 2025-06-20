@@ -85,6 +85,15 @@ from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
+from mcp import ClientSession, StdioServerParameters
+from langchain_mcp_adapters.tools import load_mcp_tools
+from mcp.client.stdio import stdio_client
+from langgraph.prebuilt import create_react_agent
+import re
+from langchain.chains import ConversationChain
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
 hello_string = "Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]\n"
 
@@ -99,7 +108,46 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.workflow = StateGraph(state_schema=MessagesState)
         self.memory = None
         self.app = None
+        self.agent = None
+        self.client = None
+        self._initialized = False
+        self.server_params = StdioServerParameters(
+            command="python",
+            args=["/home/zerone/Projects/RIGEL_SERVICE/core/mcp/rigel_tools_server.py"],
+        )
+        self.continuity = """
+                        Proceed. You CAN run code on my machine. 
+                        When providing tool outputs (like file listings, command results, etc.), always include the actual output in your response.
+                        If the entire task I asked for is done, say exactly 'The task is done.' after providing all relevant outputs and results.
+                        If you need some specific information (like username or password) say EXACTLY 'Please provide more information.' 
+                        If it's impossible, say 'The task is impossible.'
+                        (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.
+        """
+        self.continuity_breakers = [
+            r"The task is done\.",
+            r"Please provide more information\.",
+            r"The task is impossible\.",
+            r"Let me know what you'd like to do next\."
+        ]
+        self.continuity_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.continuity_breakers]
+        # runtime memory adapter
+        # self.memory = ConversationBufferMemory(memory_key="history", return_messages=True)
 
+        # self.conversation = ConversationChain(
+        #     llm=self.llm,
+        #     memory=self.memory,
+        #     prompt=self.prompt,
+        #     verbose=False
+        # )
+        self.client = MultiServerMCPClient(
+            {
+                "rigel tools": {
+                    "url": "http://localhost:8001/sse",
+                    "transport": "sse",
+                }
+            },
+        )
+        
 
     def inference(self, messages: list, model: str = None):
         self.messages = messages
@@ -120,9 +168,115 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         response = self.chain.invoke({})
         return AIMessage(content=response.content)
     
-    def inference_with_tools(self, messages: list, tools: list, model: str = None):
-        "[TODO]"
-        return 0
+    async def __init_mcp(self):
+        if not self._initialized:
+            try:
+                self.tools = await self.client.get_tools()
+                self.agent = create_react_agent(self.llm, self.tools)
+                self._initialized = True
+            except Exception as e:
+                print(f"Failed to initialize MCP client: {e}")
+                raise e
+    
+    async def cleanup_mcp(self):
+        try:
+            if hasattr(self, 'session_context') and hasattr(self, 'session') and self.session:
+                await self.session_context.__aexit__(None, None, None)
+                delattr(self, 'session')
+                delattr(self, 'session_context')
+                
+            if hasattr(self, 'stdio_context'):
+                await self.stdio_context.__aexit__(None, None, None)
+                if hasattr(self, 'read'):
+                    delattr(self, 'read')
+                if hasattr(self, 'write'):
+                    delattr(self, 'write')
+                delattr(self, 'stdio_context')
+                
+            self._initialized = False
+            syslog.info("MCP client cleanup completed")
+        except Exception as e:
+            syslog.warning(f"Error during MCP cleanup: {e}")
+            # Force reset initialization state even if cleanup fails
+            self._initialized = False
+    
+    async def inference_with_tools(self, prompt, tools=None):
+        if not self._initialized:
+                await self.__init_mcp()
+
+        messages = [
+            SystemMessage(content=self.continuity),
+            {"role": "user", "content": prompt}
+        ]
+        
+        max_iterations = 10
+        iteration_count = 0
+        complete_output = []
+        
+        try:
+            while iteration_count < max_iterations:
+                iteration_count += 1
+                syslog.info(f"Inference iteration {iteration_count}")
+                
+                result = await self.agent.ainvoke({"messages": messages})
+                new_messages = result["messages"][len(messages):]
+                
+                iteration_output = []
+                for msg in new_messages:
+                    if hasattr(msg, 'content') and msg.content:
+                        iteration_output.append(str(msg.content))
+                    elif hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        for tool_call in msg.tool_calls:
+                            iteration_output.append(f"Tool: {tool_call.get('name', 'unknown')}")
+                    elif hasattr(msg, 'name') and hasattr(msg, 'content'):
+                        iteration_output.append(f"Tool Result ({msg.name}): {msg.content}")
+                    else:
+                        iteration_output.append(str(msg))
+                
+                # Get the final AI message for continuity checking
+                final_message = result["messages"][-1]
+                syslog.info(f"Currently Processing: {final_message}")
+                
+                if iteration_output:
+                    complete_output.extend(iteration_output)
+                if hasattr(final_message, 'content') and final_message.content:
+                    response_content = final_message.content
+                    
+                    continuity_breaker_found = False
+                    for pattern in self.continuity_patterns:
+                        if pattern.search(response_content):
+                            syslog.info(f"Continuity breaker detected: {response_content}")
+                            continuity_breaker_found = True
+                            break
+                    
+                    if continuity_breaker_found:
+                        full_response = "\n\n".join(complete_output)
+                        return AIMessage(content=full_response)
+                    
+                    syslog.info(f"No continuity breaker detected. Current output: {response_content}")
+                    syslog.info(f"Continuing with task execution (iteration {iteration_count})")
+                    messages = result["messages"]
+                    messages.append({"role": "user", "content": "Continue with the task."})
+                    
+                else:
+                    return AIMessage(content="\n\n".join(complete_output))
+
+            syslog.warning(f"Reached maximum iterations ({max_iterations}) without continuity breaker")
+            if complete_output:
+                full_response = "\n\n".join(complete_output)
+                return AIMessage(content=f"{full_response}\n\nTask execution reached maximum iterations ({max_iterations}) without completion.")
+            else:
+                return AIMessage(content=f"Task execution reached maximum iterations ({max_iterations}) without completion.")
+                
+        except Exception as e:
+            syslog.error(f"Error in inference_with_tools: {e}")
+            if complete_output:
+                full_response = "\n\n".join(complete_output)
+                return AIMessage(content=f"{full_response}\n\nError occurred during tool-based inference: {str(e)}")
+            else:
+                return AIMessage(content=f"Error occurred during tool-based inference: {str(e)}")
+        finally:
+            await self.cleanup_mcp()
     
     def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default"):
         """

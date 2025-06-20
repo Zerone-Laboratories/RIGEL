@@ -7,3 +7,5 @@ pypdf
 pydbus
 pygobject
 colorama
+mcp
+langchain-mcp-adapters
