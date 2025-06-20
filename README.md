@@ -9,7 +9,7 @@
 An open-source Hybrid Agentic + Virtual Assistant
 Powered by multiple LLM backends, designed for flexible AI inference and decision-making.
 
-- Agentic reasoning + natural conversation
+- Agentic Inference + Natural conversation
 - Plug-and-play multi-LLM support
 - DBus interface for OS-level integration
 - Modular, extensible, and developer-friendly
