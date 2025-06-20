@@ -6,6 +6,8 @@
 
 > Rigel Engine v4.0.X [Developer Beta]
 
+An effort to make it easier for the opensource community to build your own Virtual Assistant Without headaches...
+
 An opensource Hybrid Multiagentic+Virtual Assistant with multi-backend LLM support, designed for flexible AI inference and decision-making capabilities.
 
 ! RIGEL Engine is still in developer-beta stage. The code will be well structured in the public release and More features will be added !
