@@ -1,0 +1,29 @@
+2025-06-20 22:52:35,914 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 22:52:43,212 - RigelEngine - INFO - Currently Processing: content='The current time is 2025-06-20 22:52:42. The task is done.' additional_kwargs={} response_metadata={'model': 'llama3.2', 'created_at': '2025-06-20T17:22:43.21071167Z', 'done': True, 'done_reason': 'stop', 'total_duration': 1021442631, 'load_duration': 16412778, 'prompt_eval_count': 226, 'prompt_eval_duration': 85434593, 'eval_count': 24, 'eval_duration': 918514476, 'model_name': 'llama3.2'} id='run--28322b55-75bd-49fb-9109-90721f79b595-0' usage_metadata={'input_tokens': 226, 'output_tokens': 24, 'total_tokens': 250}
+2025-06-20 22:52:43,212 - RigelEngine - INFO - Continuity breaker detected: The current time is 2025-06-20 22:52:42. The task is done.
+2025-06-20 22:52:43,212 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 22:52:44,236 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 22:52:44,238 - RigelEngine - ERROR - Error in inference_with_tools: Event loop is closed
+2025-06-20 22:52:44,238 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 22:52:45,260 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 22:52:46,430 - RigelEngine - INFO - Currently Processing: content='The task is done.' additional_kwargs={} response_metadata={'model': 'llama3.2', 'created_at': '2025-06-20T17:22:46.428758267Z', 'done': True, 'done_reason': 'stop', 'total_duration': 324052877, 'load_duration': 14579609, 'prompt_eval_count': 276, 'prompt_eval_duration': 104097682, 'eval_count': 6, 'eval_duration': 204061374, 'model_name': 'llama3.2'} id='run--73470935-f210-465b-8c6b-fbed38584180-0' usage_metadata={'input_tokens': 276, 'output_tokens': 6, 'total_tokens': 282}
+2025-06-20 22:52:46,431 - RigelEngine - INFO - Continuity breaker detected: The task is done.
+2025-06-20 22:52:46,431 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 22:52:47,453 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 22:52:47,456 - RigelEngine - ERROR - Error in inference_with_tools: Event loop is closed
+2025-06-20 22:52:47,456 - RigelEngine - INFO - MCP client cleanup completed
+2025-06-20 22:52:48,480 - RigelEngine - INFO - Inference iteration 1
+2025-06-20 22:52:51,262 - RigelEngine - INFO - Currently Processing: content='The current working directory is /home/zerone/Projects/RIGEL_SERVICE/core/mcp.\n\nYou are logged in as zerone.' additional_kwargs={} response_metadata={'model': 'llama3.2', 'created_at': '2025-06-20T17:22:51.260679664Z', 'done': True, 'done_reason': 'stop', 'total_duration': 1237045235, 'load_duration': 13975011, 'prompt_eval_count': 264, 'prompt_eval_duration': 103072829, 'eval_count': 29, 'eval_duration': 1118109133, 'model_name': 'llama3.2'} id='run--84d3d675-e28e-4119-bd39-44c939e62b84-0' usage_metadata={'input_tokens': 264, 'output_tokens': 29, 'total_tokens': 293}
+2025-06-20 22:52:51,262 - RigelEngine - INFO - No continuity breaker detected. Current output: The current working directory is /home/zerone/Projects/RIGEL_SERVICE/core/mcp.
+
+You are logged in as zerone.
+2025-06-20 22:52:51,262 - RigelEngine - INFO - Continuing with task execution (iteration 1)
+2025-06-20 22:52:51,262 - RigelEngine - INFO - Inference iteration 2
+2025-06-20 22:52:53,242 - RigelEngine - INFO - Currently Processing: content='The files in the current directory are:\n\n1. rigel_tools_server.py\n\n\nThe task is done.' additional_kwargs={} response_metadata={'model': 'llama3.2', 'created_at': '2025-06-20T17:22:53.237999503Z', 'done': True, 'done_reason': 'stop', 'total_duration': 954421905, 'load_duration': 14001280, 'prompt_eval_count': 342, 'prompt_eval_duration': 85067024, 'eval_count': 22, 'eval_duration': 853087959, 'model_name': 'llama3.2'} id='run--1b5f6d2c-31e8-4bf8-b188-fceb62403050-0' usage_metadata={'input_tokens': 342, 'output_tokens': 22, 'total_tokens': 364}
+2025-06-20 22:52:53,242 - RigelEngine - INFO - Continuity breaker detected: The files in the current directory are:
+
+1. rigel_tools_server.py
+
+
+The task is done.
+2025-06-20 22:52:53,242 - RigelEngine - INFO - MCP client cleanup completed

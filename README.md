@@ -120,6 +120,12 @@ RIGEL's primary interface is through its D-Bus server, providing system-wide AI 
 python server.py
 ```
 
+#### Starting the MCP Server on a separate instance
+```bash
+cd core/mcp/
+python rigel_tools_server.py
+```
+
 The server will prompt you to choose between Groq (1) or Ollama (2) backend.
 
 #### Using the D-Bus Service
