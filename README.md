@@ -72,7 +72,7 @@ Agentic based clients
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd RIGEL_SERVICE
+cd RIGEL
 ```
 
 2. Create and activate a virtual environment:
@@ -108,7 +108,7 @@ sudo dnf install python3-gobject python3-gobject-cairo gtk3-devel
 
 ## Quick Start
 
-### D-Bus Server (Main Feature)
+### D-Bus Server
 
 RIGEL's primary interface is through its D-Bus server, providing system-wide AI assistance with advanced tool capabilities.
 
