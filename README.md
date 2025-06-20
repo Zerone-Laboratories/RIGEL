@@ -32,6 +32,8 @@ Agentic based clients
 |---------|--------|
 | Inference with Ollama | ✓ |
 | Inference with Groq | ✓ |
+| Inference with LLAMA.cpp (CUDA/Vulkan Compute) | - |
+| Inference with transformers | - |
 | Thinking | ✓ |
 | MCP | ✓ |
 | Dbus Server | ✓ |
