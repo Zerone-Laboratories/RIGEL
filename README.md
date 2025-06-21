@@ -35,7 +35,7 @@ RIGEL bridges the gap between powerful AI models and practical system integratio
 
 <div align="center">
   <video width="800" controls>
-    <source src="assets/Demo.mkv" type="video/x-matroska">
+    <source src="assets/Demo.mp4" type="video/mp4">
     Your browser does not support the video tag.
   </video>
 </div>
