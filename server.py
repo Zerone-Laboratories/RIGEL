@@ -20,13 +20,18 @@ from pydbus import SessionBus
 from gi.repository import GLib
 from core.rigel import RigelOllama, RigelGroq
 from core.logger import SysLog
+from core.synth_n_recog import Synthesizer, Recognizer
 import asyncio
 import concurrent.futures
+import os
+import tempfile
 # Initialize logging
 syslog = SysLog(name="RigelDBusServer", level="INFO", log_file="server.log")
 
-global rigel, system_prompt
+global rigel, system_prompt, synthesizer, recognizer
 rigel = None
+synthesizer = None
+recognizer = None
 system_prompt = """
 You are RIGEL, a helpful assistant developed by Zerone Laboratories.
 """
@@ -52,6 +57,17 @@ class RigelServer(object):
                 <arg type='s' name='query' direction='in'/>
                 <arg type='s' name='response' direction='out'/>
             </method>
+            <method name='SynthesizeText'>
+                <arg type='s' name='text' direction='in'/>
+                <arg type='s' name='mode' direction='in'/>
+                <arg type='s' name='result' direction='out'/>
+            </method>
+            <method name='RecognizeAudio'>
+                <arg type='s' name='audio_file_path' direction='in'/>
+                <arg type='s' name='model' direction='in'/>
+                <arg type='s' name='transcription' direction='out'/>
+            </method>
+
             <method name='GetLicenseInfo'>
                 <arg type='s' name='license_info' direction='out'/>
             </method>
@@ -117,9 +133,55 @@ class RigelServer(object):
         else:
             return str(result)
 
+    def SynthesizeText(self, text, mode="chunk"):
+        global synthesizer
+        
+        try:
+            syslog.info(f"SynthesizeText called with mode: {mode}, text length: {len(text)}")
+            
+            if synthesizer is None:
+                synthesizer = Synthesizer(mode=mode)
+            else:
+                synthesizer.mode = mode
+            def _synthesize():
+                synthesizer.synthesize(text)
+            
+            import threading
+            synthesis_thread = threading.Thread(target=_synthesize)
+            synthesis_thread.daemon = True
+            synthesis_thread.start()
+            
+            return f"Text synthesis started successfully with mode: {mode}"
+            
+        except Exception as e:
+            error_msg = f"Error in text synthesis: {str(e)}"
+            syslog.error(error_msg)
+            return error_msg
+
+    def RecognizeAudio(self, audio_file_path, model="tiny"):
+        global recognizer
+        
+        try:
+            syslog.info(f"RecognizeAudio called with file: {audio_file_path}, model: {model}")
+            if not os.path.exists(audio_file_path):
+                return f"Error: Audio file not found: {audio_file_path}"
+            if recognizer is None:
+                recognizer = Recognizer(model=model)
+            elif hasattr(recognizer, 'model_name') and recognizer.model_name != model:
+                recognizer = Recognizer(model=model)
+            transcription = recognizer.transcribe(audio_file_path)
+            syslog.info(f"Transcription completed: {transcription[:100]}...")
+            
+            return transcription
+            
+        except Exception as e:
+            error_msg = f"Error in audio recognition: {str(e)}"
+            syslog.error(error_msg)
+            return error_msg
+
 
 if __name__ == "__main__":
-    print("RIGEL Experimental DBUS Interface")
+    print("RIGEL DBUS Interface")
     print("Copyright (C) 2025 Zerone Laboratories")
     print("Licensed under GNU Affero General Public License v3.0")
     print("This is free software; see the source for copying conditions.")
@@ -134,6 +196,16 @@ if __name__ == "__main__":
         rigel = RigelOllama()
         print("RIGEL initialized with OLLAMA backend")
 
+    # Initialize voice components
+    print("Initializing voice synthesis and recognition...")
+    try:
+        synthesizer = Synthesizer(mode="chunk")
+        recognizer = Recognizer(model="tiny")
+        print("Voice components initialized successfully")
+    except Exception as e:
+        print(f"Warning: Failed to initialize voice components: {e}")
+        print("Voice features may not be available")
+
     bus = SessionBus()
     bus.publish("com.rigel.RigelService", RigelServer())
     
@@ -145,6 +217,9 @@ if __name__ == "__main__":
     print("  - QueryWithMemory: Inference with conversation memory")
     print("  - QueryThink: Advanced thinking capabilities")
     print("  - QueryWithTools: Inference with MCP tools support")
+    print("  - SynthesizeText: Convert text to speech with specified mode")
+    print("  - RecognizeAudio: Transcribe audio file to text")
+    print("  - SynthesizeAndSpeak: Quick text-to-speech conversion and playback")
     print("  - GetLicenseInfo: Display license and copyright information")
     print("Press Ctrl+C to stop")
 

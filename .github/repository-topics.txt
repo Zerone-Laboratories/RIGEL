@@ -20,6 +20,12 @@ ai-memory
 rag
 llama
 transformers
+voice-recognition
+speech-synthesis
+text-to-speech
+speech-to-text
+whisper
+piper-tts
 ai-development
 machine-learning
 nlp

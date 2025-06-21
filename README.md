@@ -41,6 +41,7 @@ Key capabilities:
 - **Agentic AI**: Advanced reasoning, thinking, and decision-making
 - **System Integration**: D-Bus server for OS-level AI assistance  
 - **MCP Tools**: File management, system commands, real-time information
+- **Voice Interface**: Local speech-to-text and text-to-speech capabilities
 - **Memory Management**: Persistent conversation threads
 - **Extensible**: Plugin architecture for custom capabilities
 
@@ -60,8 +61,8 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 | Dbus Server | ✓ |
 | RAG | Partial |
 | Memory | ✓ |
-| Local Voice Recognition | - |
-| Local Voice Synthesis | - |
+| Local Voice Recognition | ✓ |
+| Local Voice Synthesis | ✓ |
 | Multiple Request Handling | Un-Tested |
 
 
@@ -70,6 +71,7 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 - **Multi-Backend Support**: Seamlessly switch between Ollama (local) and Groq (cloud) backends. More backends will be integrated in future
 - **D-Bus Server Integration**: Inter-process communication via D-Bus for system-wide AI assistance
 - **MCP (Model Context Protocol) Tools**: Extended AI capabilities with system-level operations including file management, system commands, and real-time information access
+- **Voice Synthesis & Recognition**: Local speech-to-text using Whisper and text-to-speech using Piper with chunked streaming audio
 - **Extensible Architecture**: Built with a superclass design for easy extension to new capabilities
 - **Memory Management**: Persistent conversation memory with thread-based organization
 - **Advanced Thinking**: Sophisticated reasoning and decision-making capabilities
@@ -111,7 +113,20 @@ source .venv/bin/activate  # On Linux/macOS
 pip install -r requirements.txt
 ```
 
-4. For Ollama backend, ensure Ollama is installed and running:
+4. For voice features, install system dependencies:
+```bash
+# Install Piper TTS (for voice synthesis)
+# Download from: https://github.com/rhasspy/piper/releases
+# Or install via package manager if available
+
+# Install PulseAudio for audio playback (Ubuntu/Debian)
+sudo apt-get install pulseaudio pulseaudio-utils
+
+# Install PulseAudio for audio playback (Fedora/RHEL) 
+sudo dnf install pulseaudio pulseaudio-utils
+```
+
+5. For Ollama backend, ensure Ollama is installed and running:
 ```bash
 # Install Ollama (if not already installed)
 curl -fsSL https://ollama.ai/install.sh | sh
@@ -120,7 +135,7 @@ curl -fsSL https://ollama.ai/install.sh | sh
 ollama pull llama3.2
 ```
 
-5. For D-Bus functionality (Linux only), ensure system dependencies:
+6. For D-Bus functionality (Linux only), ensure system dependencies:
 ```bash
 # Ubuntu/Debian
 sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-3.0
@@ -172,7 +187,139 @@ response = service.QueryThink("How should I approach solving this complex proble
 response = service.QueryWithTools("What time is it and list the files in the current directory?")
 response = service.QueryWithTools("Read the README.md file and summarize its contents")
 response = service.QueryWithTools("Check the system uptime and current user")
+
+# Voice synthesis and recognition
+response = service.SynthesizeText("Hello, this is RIGEL speaking!", "chunk")
+transcription = service.RecognizeAudio("/path/to/audio.wav", "tiny")
 ```
+
+## Voice Features
+
+RIGEL includes comprehensive voice capabilities for both speech synthesis and recognition, enabling natural voice interactions with your AI assistant.
+
+### Voice Synthesis (Text-to-Speech)
+
+RIGEL uses Piper TTS for high-quality, local voice synthesis with multiple modes:
+
+#### Synthesis Modes
+
+- **Chunk Mode**: Processes text in chunks (sentences) for streaming audio playback
+- **Linear Mode**: Processes entire text as a single unit
+
+#### Using Voice Synthesis
+
+```python
+from pydbus import SessionBus
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# Chunk mode for streaming (recommended for longer texts)
+result = service.SynthesizeText("Hello, this is RIGEL speaking. I can help you with various tasks.", "chunk")
+
+# Linear mode for simple, quick synthesis
+result = service.SynthesizeText("Welcome to RIGEL!", "linear")
+```
+
+#### Direct Python Usage
+
+```python
+from core.synth_n_recog import Synthesizer
+
+# Initialize synthesizer
+synthesizer = Synthesizer(mode="chunk")
+
+# Synthesize and play text
+synthesizer.synthesize("Hello, this is RIGEL speaking!")
+
+# Switch modes
+synthesizer.mode = "linear"
+synthesizer.synthesize("Quick announcement!")
+```
+
+### Voice Recognition (Speech-to-Text)
+
+RIGEL uses OpenAI Whisper for accurate, local speech recognition supporting multiple model sizes:
+
+#### Available Models
+
+- **tiny**: Fastest, good for real-time processing
+- **base**: Balanced speed and accuracy
+- **small**: Better accuracy, slower processing
+- **medium**: High accuracy for most use cases
+- **large**: Best accuracy, slowest processing
+
+#### Using Voice Recognition
+
+```python
+from pydbus import SessionBus
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# Transcribe audio file
+transcription = service.RecognizeAudio("/path/to/audio.wav", "tiny")
+print(f"Transcription: {transcription}")
+
+# Use different model for better accuracy
+transcription = service.RecognizeAudio("/path/to/audio.wav", "base")
+```
+
+#### Direct Python Usage
+
+```python
+from core.synth_n_recog import Recognizer
+
+# Initialize recognizer with desired model
+recognizer = Recognizer(model="tiny")
+
+# Transcribe audio file
+transcription = recognizer.transcribe("/path/to/audio.wav")
+print(f"Transcription: {transcription}")
+```
+
+### Voice Requirements
+
+#### System Dependencies
+
+```bash
+# Install Piper TTS
+# Download from: https://github.com/rhasspy/piper/releases
+# Ensure 'piper' command is available in PATH
+
+# Install PulseAudio for audio playback
+sudo apt-get install pulseaudio pulseaudio-utils  # Ubuntu/Debian
+sudo dnf install pulseaudio pulseaudio-utils      # Fedora/RHEL
+```
+
+#### Python Dependencies
+
+Voice features require additional dependencies included in `requirements.txt`:
+- `openai-whisper`: For speech recognition
+- `torch`, `torchaudio`, `torchvision`: PyTorch dependencies for Whisper
+
+#### Voice Models
+
+- **Piper Model**: `jarvis-medium.onnx` (included in `core/synthesis_assets/`)
+- **Whisper Models**: Downloaded automatically when first used
+
+### D-Bus Voice Endpoints
+
+#### `SynthesizeText(text: str, mode: str) -> str`
+- **Description**: Converts text to speech with specified synthesis mode
+- **Parameters**: 
+  - `text` - The text to synthesize
+  - `mode` - Synthesis mode: "chunk" or "linear"
+- **Returns**: Status message indicating synthesis started
+- **Use Case**: Voice output for AI responses, notifications, accessibility
+
+#### `RecognizeAudio(audio_file_path: str, model: str) -> str`
+- **Description**: Transcribes audio file to text using Whisper
+- **Parameters**:
+  - `audio_file_path` - Path to audio file (WAV, MP3, etc.)
+  - `model` - Whisper model size: "tiny", "base", "small", "medium", "large"
+- **Returns**: Transcribed text from audio
+- **Use Case**: Voice input processing, audio transcription, accessibility
 
 ### Basic Usage with Ollama
 
@@ -257,16 +404,28 @@ RIGEL_SERVICE/
 │   ├── rigel.py          # Main RIGEL engine classes
 │   ├── logger.py         # Logging utilities
 │   ├── rdb.py            # RAG database functionality
+│   ├── synth_n_recog.py  # Voice synthesis and recognition
 │   ├── mcp/              # MCP (Model Context Protocol) tools
 │   │   └── rigel_tools_server.py  # MCP server implementation
+│   ├── synthesis_assets/ # Voice synthesis models
+│   │   ├── jarvis-medium.onnx     # Piper TTS model
+│   │   └── jarvis-medium.onnx.json # Model configuration
 │   └── *.log             # Log files
 ├── server.py             # D-Bus server implementation
+├── demo_client.py        # Example D-Bus client with voice features
+├── test_voice_features.py # Voice features test suite
 ├── requirements.txt      # Python dependencies
+├── README.md            # This file
+├── CHANGELOG.md         # Version history and changes
+├── VOICE_SETUP.md       # Voice features setup guide
+├── LICENSE              # AGPL-3.0 license
 ├── Prototyping/          # Experimental features
 ├── Research/             # Research and documentation
 │   ├── client.py         # Example D-Bus client
 │   └── dbus_test.py      # D-Bus testing utilities
-└── README.md            # This file
+└── assets/              # Project assets
+    ├── rigel_logo.png    # RIGEL logo
+    └── RIGEL_No_text.svg # RIGEL logo without text
 ```
 
 ## API Reference
@@ -295,6 +454,31 @@ RIGEL implementation using Groq backend.
 
 **Constructor:**
 - `RigelGroq(model_name: str = "llama3-70b-8192", temp: float = 0.7)`
+
+#### `Synthesizer`
+Voice synthesis class for text-to-speech conversion.
+
+**Constructor:**
+- `Synthesizer(mode: str = "chunk")`
+
+**Methods:**
+- `synthesize(text: str)` - Convert text to speech and play audio
+
+**Modes:**
+- `chunk` - Process text in sentence chunks for streaming playback
+- `linear` - Process entire text as single unit
+
+#### `Recognizer`
+Voice recognition class for speech-to-text conversion.
+
+**Constructor:**
+- `Recognizer(model: str = "tiny")`
+
+**Methods:**
+- `transcribe(file_path: str) -> str` - Transcribe audio file to text
+
+**Models:**
+- `tiny`, `base`, `small`, `medium`, `large` - Whisper model sizes
 
 ## Message Format
 
@@ -574,9 +758,15 @@ See the [LICENSE](LICENSE) file for the full license text.
 
 For support, please open an issue in the GitHub repository or contact Zerone Laboratories.
 
+### Additional Documentation
+
+- **[Voice Setup Guide](VOICE_SETUP.md)** - Complete guide for setting up voice features
+- **[Changelog](CHANGELOG.md)** - Version history and new features
+- **[License](LICENSE)** - Full AGPL-3.0 license text
+
 ## Keywords & Topics
 
-**AI Assistant** • **Virtual Assistant** • **Multi-LLM** • **Agentic AI** • **Ollama** • **Groq** • **Python AI Framework** • **Open Source AI** • **Local AI** • **Cloud AI** • **D-Bus** • **MCP Tools** • **AI Inference Engine** • **Chatbot Framework** • **LLM Backend** • **AI Memory** • **RAG** • **LLAMA** • **Transformers** • **AI Development** • **Machine Learning** • **Natural Language Processing** • **Conversational AI** • **AI Tools** • **System Integration**
+**AI Assistant** • **Virtual Assistant** • **Multi-LLM** • **Agentic AI** • **Ollama** • **Groq** • **Python AI Framework** • **Open Source AI** • **Local AI** • **Cloud AI** • **D-Bus** • **MCP Tools** • **AI Inference Engine** • **Chatbot Framework** • **LLM Backend** • **AI Memory** • **RAG** • **LLAMA** • **Transformers** • **Voice Recognition** • **Speech Synthesis** • **TTS** • **STT** • **Whisper** • **Piper** • **AI Development** • **Machine Learning** • **Natural Language Processing** • **Conversational AI** • **AI Tools** • **System Integration**
 
 ---
 

@@ -31,3 +31,7 @@ typing_extensions==4.14.0
 SQLAlchemy==2.0.41
 packaging==24.2
 tqdm==4.67.1
+openai-whisper==20240930
+torch==2.5.1
+torchvision==0.20.1
+torchaudio==2.5.1
