@@ -194,32 +194,19 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             except Exception as e:
                 print(f"Failed to initialize MCP client: {e}")
                 raise e
-    
     async def cleanup_mcp(self):
         try:
-            if hasattr(self, 'session_context') and hasattr(self, 'session') and self.session:
-                await self.session_context.__aexit__(None, None, None)
-                delattr(self, 'session')
-                delattr(self, 'session_context')
-                
-            if hasattr(self, 'stdio_context'):
-                await self.stdio_context.__aexit__(None, None, None)
-                if hasattr(self, 'read'):
-                    delattr(self, 'read')
-                if hasattr(self, 'write'):
-                    delattr(self, 'write')
-                delattr(self, 'stdio_context')
-                
+            self.agent = None
+            self.tools = None
             self._initialized = False
-            syslog.info("MCP client cleanup completed")
+            syslog.info("MCP resources cleaned up successfully.")
         except Exception as e:
             syslog.warning(f"Error during MCP cleanup: {e}")
-            # Force reset initialization state even if cleanup fails
-            self._initialized = False
+
     
     async def inference_with_tools(self, prompt, tools=None):
         if not self._initialized:
-                await self.__init_mcp()
+            await self.__init_mcp()
 
         messages = [
             SystemMessage(content=self.continuity),
@@ -234,8 +221,13 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             while iteration_count < max_iterations:
                 iteration_count += 1
                 syslog.info(f"Inference iteration {iteration_count}")
-                
-                result = await self.agent.ainvoke({"messages": messages})
+                for i in range(0,2):
+                    try:
+                        result = await self.agent.ainvoke({"messages": messages})
+                        break
+                    except:
+                        syslog.error("Inference Failed !, Retrying...")
+                        pass
                 new_messages = result["messages"][len(messages):]
                 
                 iteration_output = []
@@ -250,7 +242,6 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                     else:
                         iteration_output.append(str(msg))
                 
-                # Get the final AI message for continuity checking
                 final_message = result["messages"][-1]
                 syslog.info(f"Currently Processing: {final_message}")
                 
@@ -293,6 +284,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             else:
                 return AIMessage(content=f"Error occurred during tool-based inference: {str(e)}")
         finally:
+            syslog.info("Cleaning Up MCP")
             await self.cleanup_mcp()
     
     def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default"):

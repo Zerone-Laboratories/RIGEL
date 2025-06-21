@@ -127,11 +127,33 @@ class RigelServer(object):
         global rigel
         
         syslog.info(f"QueryWithTools called with query: {query[:100]}...")
-        result = asyncio.run(rigel.inference_with_tools(query))
-        if hasattr(result, 'content'):
-            return result.content
-        else:
-            return str(result)
+        try:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(self._run_async_tools_query, query)
+                result = future.result(timeout=120)
+            
+            if hasattr(result, 'content'):
+                return result.content
+            else:
+                return str(result)
+                
+        except concurrent.futures.TimeoutError:
+            error_msg = "Query with tools timed out after 2 minutes"
+            syslog.error(error_msg)
+            return f"Error: {error_msg}"
+        except Exception as e:
+            error_msg = f"Error occurred during tool-based inference: {str(e)}"
+            syslog.error(error_msg)
+            return f"Error: {error_msg}"
+    
+    def _run_async_tools_query(self, query):
+        global rigel
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(rigel.inference_with_tools(query))
+        finally:
+            loop.close()
 
     def SynthesizeText(self, text, mode="chunk"):
         global synthesizer
