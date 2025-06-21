@@ -33,12 +33,33 @@ jobs:
           gir1.2-glib-2.0 \
           pulseaudio \
           pulseaudio-utils \
-          ffmpeg
+          ffmpeg \
+          build-essential \
+          libblas-dev \
+          liblapack-dev \
+          gfortran
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # Pin setuptools to avoid pkg_resources deprecation issues with openai-whisper
+        pip install "setuptools<81"
+        # Install dependencies with specific handling for problematic packages
+        if [ -f requirements.txt ]; then 
+          # Try installing everything normally first
+          pip install -r requirements.txt || {
+            echo "Standard installation failed, trying alternative approach..."
+            # Install without openai-whisper first to avoid conflicts
+            grep -v "openai-whisper" requirements.txt | pip install -r /dev/stdin
+            # Try installing openai-whisper with no-deps and manual dependencies
+            pip install openai-whisper==20240930 --no-deps || {
+              echo "openai-whisper installation failed, trying faster-whisper as alternative..."
+              pip install faster-whisper
+            }
+            # Install whisper dependencies manually if needed
+            pip install tiktoken more-itertools
+          }
+        fi
     
     - name: Validate project structure
       run: |
@@ -51,17 +72,35 @@ jobs:
     - name: Test voice module imports
       run: |
         python -c "
+        whisper_available = False
+        
+        # Try openai-whisper first
         try:
             import whisper
-            print('✓ Whisper import successful')
+            print('✓ OpenAI Whisper import successful')
+            whisper_available = True
         except ImportError as e:
-            print('✗ Whisper import failed:', e)
+            print('⚠ OpenAI Whisper import failed:', str(e))
+            
+        # Try faster-whisper as fallback
+        if not whisper_available:
+            try:
+                import faster_whisper
+                print('✓ Faster Whisper import successful (fallback)')
+                whisper_available = True
+            except ImportError as e:
+                print('⚠ Faster Whisper import failed:', str(e))
+                
+        if not whisper_available:
+            print('✗ No whisper implementation available')
+            exit(1)
             
         try:
             import torch
             print('✓ PyTorch import successful')
         except ImportError as e:
             print('✗ PyTorch import failed:', e)
+            exit(1)
         "
         
     - name: Test core module imports
