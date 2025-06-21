@@ -30,6 +30,18 @@ RIGEL bridges the gap between powerful AI models and practical system integratio
 > [!WARNING]
 > RIGEL Engine is still in developer-beta stage. Bugs may present. The code will be well structured in the public release and more features will be added!.
 
+## Example Tool built using RIGEL Engine
+### Rigel-Runtime Shell
+
+<div align="center">
+  <video width="800" controls>
+    <source src="assets/Demo.mkv" type="video/x-matroska">
+    Your browser does not support the video tag.
+  </video>
+</div>
+
+Repository for this tool: [https://github.com/Zerone-Laboratories/RIGEL-Runtime]
+
 ## Overview
 
 RIGEL is a powerful **open-source multi-agentic AI engine** and **virtual assistant framework** that provides a unified interface for multiple language model backends. Built with extensibility in mind, it supports both **local AI inference via Ollama** and **cloud-based inference through Groq**. 
