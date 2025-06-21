@@ -3,6 +3,7 @@ langchain-core==0.3.65
 langchain-groq==0.3.2
 langchain-mcp-adapters==0.1.7
 langchain-ollama==0.3.3
+langchain-openai==0.3.9
 langchain-text-splitters==0.3.8
 langgraph==0.4.8
 langgraph-checkpoint==2.1.0

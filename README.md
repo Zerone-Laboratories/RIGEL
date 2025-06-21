@@ -34,6 +34,15 @@ RIGEL bridges the gap between powerful AI models and practical system integratio
 ### Rigel-Runtime Shell
 
 <div align="center">
+
+
+
+
+
+
+
+
+
   <img src="assets/Demo.gif" alt="RIGEL Demo" width="800"/>
 </div>
 
@@ -63,7 +72,7 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 |---------|--------|
 | Inference with Ollama | ✓ |
 | Inference with Groq | ✓ |
-| Inference with LLAMA.cpp (CUDA/Vulkan Compute) | - |
+| Inference with LLAMA.cpp (CUDA/Vulkan Compute) | ✓ |
 | Inference with transformers | - |
 | Thinking | ✓ |
 | MCP | ✓ |
@@ -99,6 +108,13 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 - **Default Model**: `llama3-70b-8192`
 - **Type**: Cloud-based inference
 - **Benefits**: High performance, larger models, no local compute requirements
+- **Requirements**: Groq API key
+
+### LLAMA.cpp Server Backend (`RigelLlamaCpp`)
+- **Default Model**: User-defined (depends on loaded model)
+- **Type**: Local inference via OpenAI-compatible server
+- **Benefits**: GPU acceleration (CUDA/Vulkan), high performance, full control over model
+- **Requirements**: Running llama.cpp server instance
 - **Requirements**: Groq API key
 
 ## Installation
@@ -372,6 +388,41 @@ response = rigel.inference(messages=messages)
 print(response.content)
 ```
 
+### Basic Usage with LLAMA.cpp Server
+
+```python
+from core.rigel import RigelLlamaCpp
+
+# Initialize RIGEL with llama.cpp server backend (default: localhost:8080)
+rigel = RigelLlamaCpp()
+
+# Or specify custom server URL
+rigel = RigelLlamaCpp(base_url="http://192.168.1.100:8080")
+
+# Check server status
+server_status = rigel.check_server_status()
+print(f"Server status: {server_status}")
+
+# Define your messages
+messages = [
+    ("system", "You are RIGEL, a helpful assistant"),
+    ("human", "Hello! How fast is your inference?"),
+]
+
+# Get response
+response = rigel.inference(messages=messages)
+print(response.content)
+```
+
+**Setting up llama.cpp server:**
+```bash
+# Start llama.cpp server with Vulkan support
+./server -m your_model.gguf --host 0.0.0.0 --port 8080 -ngl 999
+
+# For different port
+./server -m your_model.gguf --host 0.0.0.0 --port 8081 -ngl 999
+```
+
 ### Usage with Memory
 
 ```python
@@ -463,6 +514,21 @@ RIGEL implementation using Groq backend.
 
 **Constructor:**
 - `RigelGroq(model_name: str = "llama3-70b-8192", temp: float = 0.7)`
+
+#### `RigelLlamaCpp`
+RIGEL implementation using LLAMA.cpp server backend with OpenAI-compatible API.
+
+**Constructor:**
+- `RigelLlamaCpp(model_name: str = "llama-model", base_url: str = "http://localhost:8080", temp: float = 0.7)`
+
+**Methods:**
+- `check_server_status()` - Check if llama.cpp server is running and accessible
+
+**Benefits:**
+- GPU acceleration (CUDA/Vulkan support)
+- High performance local inference
+- Full control over model parameters
+- No external API dependencies
 
 #### `Synthesizer`
 Voice synthesis class for text-to-speech conversion.
@@ -781,4 +847,4 @@ For support, please open an issue in the GitHub repository or contact Zerone Lab
 
 An effort to make it easier for the opensource community to build your own Virtual Assistant.
 
-**Zerone Laboratories Systems - RIGEL Engine v4.0.X[Dev]** 
+**Zerone Laboratories Systems - RIGEL Engine v4.0.X[Dev]**

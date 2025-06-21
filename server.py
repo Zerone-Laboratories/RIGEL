@@ -18,7 +18,7 @@
 
 from pydbus import SessionBus
 from gi.repository import GLib
-from core.rigel import RigelOllama, RigelGroq
+from core.rigel import RigelOllama, RigelGroq, RigelLlamaCpp
 from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer
 import asyncio
@@ -209,12 +209,42 @@ if __name__ == "__main__":
     print("This is free software; see the source for copying conditions.")
     print("")
     print("Select Required Backend :")
-    backend_choice = int(input("Select '1' for GROQ and '2' for OLLAMA "))
+    print("1. GROQ (Cloud-based)")
+    print("2. OLLAMA (Local)")
+    print("3. LLAMA.CPP Server (Local)")
+    backend_choice = int(input("Enter your choice (1-3): "))
     
     if backend_choice == 1:
         rigel = RigelGroq()
         print("RIGEL initialized with GROQ backend")
+    elif backend_choice == 2:
+        rigel = RigelOllama()
+        print("RIGEL initialized with OLLAMA backend")
+    elif backend_choice == 3:
+        # Get server URL from user
+        default_url = "http://localhost:8080"
+        server_url = input(f"Enter llama.cpp server URL (default: {default_url}): ").strip()
+        if not server_url:
+            server_url = default_url
+        
+        rigel = RigelLlamaCpp(base_url=server_url)
+        
+        # Check server status
+        server_status = rigel.check_server_status()
+        print(f"Server status: {server_status['message']}")
+        
+        if server_status["status"] != "running":
+            print(f"Warning: llama.cpp server at {server_url} is not accessible!")
+            print("Make sure your llama.cpp server is running with --api-key flag")
+            print("Example: ./server -m your_model.gguf --host 0.0.0.0 --port 8080")
+            continue_anyway = input("Continue anyway? (y/N): ").lower().strip()
+            if continue_anyway != 'y':
+                print("Exiting...")
+                exit(1)
+        
+        print(f"RIGEL initialized with LLAMA.CPP backend at {server_url}")
     else:
+        print("Invalid choice. Defaulting to OLLAMA backend.")
         rigel = RigelOllama()
         print("RIGEL initialized with OLLAMA backend")
 

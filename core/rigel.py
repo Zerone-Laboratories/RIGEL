@@ -100,6 +100,7 @@ import os
 import getpass
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from mcp import ClientSession, StdioServerParameters
@@ -108,6 +109,7 @@ from mcp.client.stdio import stdio_client
 from langgraph.prebuilt import create_react_agent
 import re
 from langchain.chains import ConversationChain
+import requests
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 
@@ -421,7 +423,62 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         if model:
             self.llm.model = model
         return super().inference(messages)
+
+class RigelLlamaCpp(Rigel): # RIGEL with llama.cpp OpenAI-compatible server backend
+    def __init__(self, model_name: str = "llama-model", base_url: str = "http://localhost:8080", temp: float = 0.7):
+        super().__init__(model_name=model_name, chatmode="llamacpp")
+        self.base_url = base_url
+        self.llm = ChatOpenAI(
+            model=self.model,
+            base_url=f"{self.base_url}/v1",
+            api_key="not-needed",
+            temperature=temp,
+        )
+        syslog.info(f"Initialized RIGEL with llama.cpp server at {self.base_url}")
+
+    def inference(self, messages: list, model: str = None):
+        if model:
+            self.llm = ChatOpenAI(
+                model=model,
+                base_url=f"{self.base_url}/v1",
+                api_key="not-needed",
+                temperature=self.llm.temperature,
+            )
+        return super().inference(messages)
     
+    def check_server_status(self):
+        try:
+            response = requests.get(f"{self.base_url}/v1/models", timeout=5)
+            if response.status_code == 200:
+                models_data = response.json()
+                syslog.info(f"llama.cpp server is running at {self.base_url}")
+                return {
+                    "status": "running",
+                    "url": self.base_url,
+                    "models": models_data.get("data", []),
+                    "message": "Server is accessible"
+                }
+            else:
+                syslog.warning(f"llama.cpp server responded with status {response.status_code}")
+                return {
+                    "status": "error",
+                    "url": self.base_url,
+                    "message": f"Server responded with status {response.status_code}"
+                }
+        except requests.exceptions.ConnectionError:
+            syslog.error(f"Cannot connect to llama.cpp server at {self.base_url}")
+            return {
+                "status": "offline",
+                "url": self.base_url,
+                "message": "Cannot connect to server - check if llama.cpp server is running"
+            }
+        except Exception as e:
+            syslog.error(f"Error checking server status: {e}")
+            return {
+                "status": "error",
+                "url": self.base_url,
+                "message": f"Error: {str(e)}"
+            }
 
 # Some Demos
 if __name__ == "__main__":
@@ -446,6 +503,23 @@ if __name__ == "__main__":
     syslog.debug(f"Example Inference Groq :{messages_groq}")
     response_groq = rigel_groq.inference(messages=messages_groq)
     syslog.debug(response_groq.content)
+    
+    # Example with llama.cpp server (if running)
+    try:
+        rigel_cpp = RigelLlamaCpp(model_name="llama-model", base_url="http://localhost:8080")
+        server_status = rigel_cpp.check_server_status()
+        syslog.info(f"llama.cpp server status: {server_status}")
+        
+        if server_status["status"] == "running":
+            messages_cpp = [
+                ("system", "You are RIGEL, a helpful assistant"),
+                ("human", "Say Hello llama.cpp Vulkan server, Let's get the party started!"),
+            ]
+            syslog.debug(f"Example Inference llama.cpp :{messages_cpp}")
+            response_cpp = rigel_cpp.inference(messages=messages_cpp)
+            syslog.debug(response_cpp.content)
+    except Exception as e:
+        syslog.warning(f"Could not test llama.cpp backend: {e}")
     
     # Example with memory functionality
     syslog.info("Testing memory functionality...")
