@@ -1,0 +1,33 @@
+# Repository Topics for GitHub
+# Add these topics to your GitHub repository settings for better discoverability:
+
+ai-assistant
+virtual-assistant
+multi-llm
+agentic-ai
+ollama
+groq
+python-framework
+open-source-ai
+local-ai
+cloud-ai
+dbus
+mcp-tools
+ai-inference
+chatbot-framework
+llm-backend
+ai-memory
+rag
+llama
+transformers
+ai-development
+machine-learning
+nlp
+conversational-ai
+ai-tools
+system-integration
+hybrid-ai
+ai-engine
+language-models
+artificial-intelligence
+automation

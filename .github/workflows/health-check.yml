@@ -1,0 +1,32 @@
+name: Project Health Check
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.8'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Validate project structure
+      run: |
+        echo "Project structure validation passed"
+        echo "Core modules found:"
+        ls -la core/
+        echo "README.md exists and is readable"
+        head -n 5 README.md

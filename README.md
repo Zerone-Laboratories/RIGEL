@@ -1,15 +1,22 @@
-# RIGEL
+# RIGEL - Open Source AI Assistant & Multi-LLM Agentic Engine
 
 <div align="center">
-  <img src="assets/rigel_logo.png" alt="RIGEL Logo" width="300"/>
+  <img src="assets/rigel_logo.png" alt="RIGEL AI Assistant Logo - Open Source Multi-LLM Engine" width="300"/>
+  
+  [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+  [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
+  [![Ollama](https://img.shields.io/badge/Ollama-Compatible-green.svg)](https://ollama.ai)
+  [![Groq](https://img.shields.io/badge/Groq-Supported-orange.svg)](https://groq.com)
 </div>
 
 Hello World !
 
 > Zerone Laboratories - Rigel Engine v4.0.X [Developer Beta]
 
-An open-source Hybrid Agentic + Virtual Assistant
-Powered by multiple LLM backends, designed for flexible AI inference and decision-making.
+**Open-source Hybrid AI Assistant & Virtual Assistant Engine**  
+Multi-LLM backend support | Agentic AI | Local & Cloud Inference | D-Bus Integration | Python AI Framework
+
+Powered by multiple LLM backends (Ollama, Groq, LLAMA.cpp), designed for flexible AI inference, decision-making, and system integration.
 
 - Agentic Inference + Natural conversation
 - Plug-and-play multi-LLM support
@@ -17,13 +24,27 @@ Powered by multiple LLM backends, designed for flexible AI inference and decisio
 - Modular, extensible, and developer-friendly
 - Build it. Hack it. Make it yours.
 
+**What makes RIGEL special?**
+RIGEL bridges the gap between powerful AI models and practical system integration. Whether you're building a personal AI assistant, developing chatbots, creating AI-powered applications, or researching agentic AI systems, RIGEL provides the foundation you need with support for both local privacy-focused inference and high-performance cloud models.
+
 > [!WARNING]
 > RIGEL Engine is still in developer-beta stage. Bugs may present. The code will be well structured in the public release and more features will be added!.
 
 ## Overview
 
-RIGEL is a powerful multi-agentic engine that provides a unified interface for multiple language model backends. Built with extensibility in mind, it supports both local inference via Ollama and cloud-based inference through Groq. Aims to act as a central server for multiple 
-Agentic based clients
+RIGEL is a powerful **open-source multi-agentic AI engine** and **virtual assistant framework** that provides a unified interface for multiple language model backends. Built with extensibility in mind, it supports both **local AI inference via Ollama** and **cloud-based inference through Groq**. 
+
+**Perfect for developers building AI applications, chatbots, virtual assistants, and agentic AI systems.**
+
+Key capabilities:
+- **Multi-LLM Support**: Ollama (local), Groq (cloud), LLAMA.cpp, Transformers
+- **Agentic AI**: Advanced reasoning, thinking, and decision-making
+- **System Integration**: D-Bus server for OS-level AI assistance  
+- **MCP Tools**: File management, system commands, real-time information
+- **Memory Management**: Persistent conversation threads
+- **Extensible**: Plugin architecture for custom capabilities
+
+Aims to act as a central AI server for multiple agentic-based clients and AI-powered applications.
 
 
 ## Project Status
@@ -552,6 +573,10 @@ See the [LICENSE](LICENSE) file for the full license text.
 ## Support
 
 For support, please open an issue in the GitHub repository or contact Zerone Laboratories.
+
+## Keywords & Topics
+
+**AI Assistant** • **Virtual Assistant** • **Multi-LLM** • **Agentic AI** • **Ollama** • **Groq** • **Python AI Framework** • **Open Source AI** • **Local AI** • **Cloud AI** • **D-Bus** • **MCP Tools** • **AI Inference Engine** • **Chatbot Framework** • **LLM Backend** • **AI Memory** • **RAG** • **LLAMA** • **Transformers** • **AI Development** • **Machine Learning** • **Natural Language Processing** • **Conversational AI** • **AI Tools** • **System Integration**
 
 ---
 
