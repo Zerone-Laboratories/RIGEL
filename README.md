@@ -34,10 +34,7 @@ RIGEL bridges the gap between powerful AI models and practical system integratio
 ### Rigel-Runtime Shell
 
 <div align="center">
-  <video width="800" controls>
-    <source src="assets/Demo.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+  <img src="assets/Demo.gif" alt="RIGEL Demo" width="800"/>
 </div>
 
 Repository for this tool: [https://github.com/Zerone-Laboratories/RIGEL-Runtime]
