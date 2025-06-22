@@ -20,6 +20,7 @@ from pydbus import SessionBus
 from gi.repository import GLib
 from core.rigel import RigelOllama, RigelGroq
 from core.logger import SysLog
+from core.rdb import DBConn
 from core.synth_n_recog import Synthesizer, Recognizer
 import asyncio
 import concurrent.futures
@@ -208,11 +209,14 @@ if __name__ == "__main__":
     print("Licensed under GNU Affero General Public License v3.0")
     print("This is free software; see the source for copying conditions.")
     print("")
+    print("Prepearing VectorDB")
+    db = DBConn()
+    db.load_data_from_txt_path("core/mcp/data/quickshell-docs.md")
     print("Select Required Backend :")
     backend_choice = int(input("Select '1' for GROQ and '2' for OLLAMA "))
     
     if backend_choice == 1:
-        rigel = RigelGroq()
+        rigel = RigelGroq(model_name="meta-llama/llama-4-maverick-17b-128e-instruct")
         print("RIGEL initialized with GROQ backend")
     else:
         rigel = RigelOllama()

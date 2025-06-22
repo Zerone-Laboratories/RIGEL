@@ -21,7 +21,7 @@ import os
 
 class DBConn:
     def __init__(self):
-        self.chroma_client = chromadb.PersistentClient(path="db/chroma_db")
+        self.chroma_client = chromadb.PersistentClient(path="core/mcp/db/chroma_db")
         self.collection = self.chroma_client.get_or_create_collection(name="rag_data")
         
 

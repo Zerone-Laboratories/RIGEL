@@ -133,10 +133,11 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             args=["/home/zerone/Projects/RIGEL_SERVICE/core/mcp/rigel_tools_server.py"],
         )
         self.continuity = """
+                        Check user's current directory
                         Proceed. You CAN run code on my machine. 
                         When providing tool outputs (like file listings, command results, etc.), always include the actual output in your response.
                         If the entire task I asked for is done, say exactly 'The task is done.' after providing all relevant outputs and results.
-                        If you need some specific information (like username or password) say EXACTLY 'Please provide more information.' 
+                        If the task failed, retry
                         If it's impossible, say 'The task is impossible.'
                         (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.
         """
@@ -221,13 +222,20 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             while iteration_count < max_iterations:
                 iteration_count += 1
                 syslog.info(f"Inference iteration {iteration_count}")
+                result = None
                 for i in range(0,2):
                     try:
                         result = await self.agent.ainvoke({"messages": messages})
                         break
-                    except:
-                        syslog.error("Inference Failed !, Retrying...")
-                        pass
+                    except Exception as e:
+                        syslog.error(f"Inference Failed !, Retrying... Error: {e}")
+                        if i == 1:  # Last attempt failed
+                            syslog.error("All retry attempts failed")
+                            raise Exception(f"Failed to invoke agent after 2 attempts. Last error: {e}")
+                
+                if result is None:
+                    raise Exception("Agent invocation failed - result is None")
+                    
                 new_messages = result["messages"][len(messages):]
                 
                 iteration_output = []
