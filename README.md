@@ -9,6 +9,50 @@
   [![Groq](https://img.shields.io/badge/Groq-Supported-orange.svg)](https://groq.com)
 </div>
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Project Status](#project-status)
+- [Features](#features)
+- [Supported Backends](#supported-backends)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+  - [D-Bus Server](#d-bus-server)
+  - [Starting the MCP Server](#starting-the-mcp-server-on-a-separate-instance)
+  - [Configuring MCP Servers](#configuring-mcp-servers)
+  - [Using the D-Bus Service](#using-the-d-bus-service)
+- [Voice Features](#voice-features)
+  - [Voice Synthesis (Text-to-Speech)](#voice-synthesis-text-to-speech)
+  - [Voice Recognition (Speech-to-Text)](#voice-recognition-speech-to-text)
+  - [Voice Requirements](#voice-requirements)
+  - [D-Bus Voice Endpoints](#d-bus-voice-endpoints)
+- [Basic Usage Examples](#basic-usage-with-ollama)
+  - [Usage with Ollama](#basic-usage-with-ollama)
+  - [Usage with Groq](#basic-usage-with-groq)
+  - [Usage with Memory](#usage-with-memory)
+- [Project Structure](#project-structure)
+- [API Reference](#api-reference)
+- [Message Format](#message-format)
+- [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
+- [MCP (Model Context Protocol) Tools](#mcp-model-context-protocol-tools)
+  - [Key MCP Capabilities](#key-mcp-capabilities)
+  - [MCP Server Configuration](#mcp-server-configuration)
+  - [Available MCP Tools](#available-mcp-tools)
+  - [MCP Usage Examples](#mcp-usage-examples)
+  - [MCP Setup Instructions](#mcp-setup-instructions)
+- [D-Bus Server](#d-bus-server-1)
+  - [D-Bus Interface Details](#d-bus-interface-details)
+  - [Available D-Bus Endpoints](#available-d-bus-endpoints)
+  - [Running the D-Bus Server](#running-the-d-bus-server)
+  - [D-Bus Client Examples](#d-bus-client-examples)
+- [Environment Variables](#environment-variables)
+- [Logging](#logging)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
+
+---
+
 Hello World !
 
 > Zerone Laboratories - Rigel Engine v4.0.X [Developer Beta]
@@ -49,10 +93,10 @@ Key capabilities:
 - **Multi-LLM Support**: Ollama (local), Groq (cloud), LLAMA.cpp, Transformers
 - **Agentic AI**: Advanced reasoning, thinking, and decision-making
 - **System Integration**: D-Bus server for OS-level AI assistance  
-- **MCP Tools**: File management, system commands, real-time information
+- **MCP Tools**: File management, system commands, real-time information with configurable server support
 - **Voice Interface**: Local speech-to-text and text-to-speech capabilities
 - **Memory Management**: Persistent conversation threads
-- **Extensible**: Plugin architecture for custom capabilities
+- **Extensible**: Plugin architecture for custom capabilities and MCP server integration
 
 Aims to act as a central AI server for multiple agentic-based clients and AI-powered applications.
 
@@ -168,10 +212,30 @@ python server.py
 The server will prompt you to choose between Groq (1) or Ollama (2) backend.
 
 #### Starting the MCP Server on a separate instance
+
+For debugging or standalone use, you can start the built-in MCP server manually:
+
 ```bash
 cd core/mcp/
 python rigel_tools_server.py
 ```
+
+#### Configuring MCP Servers
+
+Before starting the D-Bus server, you can configure custom MCP servers by editing `server.py`. The file includes commented examples showing how to:
+
+- Configure the built-in "rigel tools" server (SSE transport)
+- Add external MCP servers like "python-toolbox" (STDIO transport)
+- Set up environment variables and command-line arguments
+
+To enable MCP functionality:
+
+1. **Edit `server.py`** and uncomment the `default_mcp` configuration
+2. **Modify paths and settings** to match your environment
+3. **Start any external MCP servers** if using STDIO transport
+4. **Run the RIGEL server** with your MCP configuration
+
+If no MCP servers are configured, RIGEL will display a helpful message with setup instructions.
 
 #### Using the D-Bus Service
 
@@ -545,25 +609,153 @@ RIGEL includes comprehensive MCP support that significantly extends the AI's cap
 - **Error Handling**: Robust error reporting and recovery mechanisms
 - **Real-time Integration**: Seamless integration with AI reasoning
 
-### Starting the MCP Server
+### MCP Server Configuration
 
-The MCP server is automatically started when using the `QueryWithTools` endpoint, but you can also run it manually for debugging:
+RIGEL supports multiple MCP servers through the `MultiServerMCPClient`. You can configure custom MCP servers in `server.py` before initialization.
+
+#### Built-in MCP Server
+
+RIGEL includes a built-in MCP server with essential system tools:
 
 ```bash
+# Start the built-in MCP server manually (for debugging)
 python core/mcp/rigel_tools_server.py
 ```
 
+#### Configuring Custom MCP Servers
+
+To add custom MCP servers, edit the `server.py` file and uncomment/modify the MCP configuration:
+
+```python
+# Example MCP server configuration in server.py
+default_mcp = MultiServerMCPClient(
+    {
+        "rigel tools": {
+            "url": "http://localhost:8001/sse",
+            "transport": "sse",
+        },
+        "python-toolbox": {
+            "command": "/path/to/your/mcp_server/.venv/bin/python",
+            "args": [
+                "-m",
+                "mcp_server_package",
+                "--workspace",
+                "/path/to/workspace"
+            ],
+            "env": {
+                "PYTHONPATH": "/path/to/your/mcp_server/src",
+                "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                "VIRTUAL_ENV": "/path/to/your/mcp_server/.venv",
+                "PYTHONHOME": ""
+            },
+            "transport": "stdio"
+        }
+    },
+)
+```
+
+#### MCP Transport Types
+
+RIGEL supports two MCP transport methods:
+
+- **SSE (Server-Sent Events)**: For HTTP-based MCP servers
+  ```python
+  "transport": "sse",
+  "url": "http://localhost:8001/sse"
+  ```
+
+- **STDIO**: For process-based MCP servers
+  ```python
+  "transport": "stdio",
+  "command": "/path/to/executable",
+  "args": ["arg1", "arg2"]
+  ```
+
+#### MCP Server Network Configuration
+
+The built-in MCP server runs on **port 8001** by default using Server-Sent Events (SSE) transport:
+
+```python
+# Default configuration in server.py
+"rigel tools": {
+    "url": "http://localhost:8001/sse",
+    "transport": "sse",
+}
+```
+
+To change the port, modify both:
+1. **`core/mcp/rigel_tools_server.py`**: Update the `port=8001` parameter in `FastMCP()`
+2. **`server.py`**: Update the URL in the MCP client configuration
+
+#### Adding Your Own MCP Server
+
+1. **Create your MCP server** following the MCP specification
+2. **Edit `server.py`** and add your server to the `MultiServerMCPClient` configuration
+3. **Set `default_mcp`** to your configuration instead of `None`
+4. **Restart the RIGEL service** to load the new configuration
+
+If no MCP servers are configured (`default_mcp = None`), RIGEL will display a warning message suggesting you configure MCP servers for enhanced functionality.
+
+#### MCP Troubleshooting
+
+**Common Issues:**
+
+1. **"MCP server connection failed"**
+   - Ensure the MCP server is running before starting RIGEL
+   - Check that port 8001 is available and not blocked by firewall
+   - Verify the URL in the configuration matches the server
+
+2. **"QueryWithTools times out"**
+   - Commands have a 30-second timeout for safety
+   - Check if the requested operation is resource-intensive
+   - Verify system commands are valid and accessible
+
+3. **"Permission denied" errors**
+   - MCP tools respect system file permissions
+   - Ensure RIGEL has appropriate access to requested files/directories
+   - Check user permissions for system commands
+
+4. **MCP tools not available**
+   - Verify `default_mcp` is properly configured in `server.py`
+   - Ensure MCP dependencies are installed: `pip install langchain_mcp_adapters`
+   - Check that the MCP server started successfully
+
 ### Available MCP Tools
 
+The built-in RIGEL MCP server (`core/mcp/rigel_tools_server.py`) provides the following tools:
+
 #### System Operations
-- **`current_time()`** - Get current system date and time
-- **`get_system_info()`** - Retrieve system information (user, home directory, shell, OS details)
+- **`current_time()`** - Get current system date and time in YYYY-MM-DD HH:MM:SS format
+- **`get_system_info()`** - Retrieve comprehensive system information including:
+  - Current working directory
+  - Current user name
+  - Home directory path
+  - Default shell
+  - Python version
 - **`run_system_command(command)`** - Execute shell commands safely with output capture
+  - 30-second timeout for safety
+  - Returns both stdout and stderr
+  - Captures exit codes for error handling
 
 #### File Operations
 - **`read_file(file_path)`** - Read contents of any accessible file
-- **`write_file(file_path, content)`** - Write content to files (creates directories if needed)
-- **`list_directory(directory_path)`** - List directory contents with file type indicators
+  - Supports UTF-8 encoding
+  - Returns full file contents or error message
+- **`write_file(file_path, content)`** - Write content to files
+  - Creates files if they don't exist
+  - UTF-8 encoding support
+  - Returns success confirmation or error details
+- **`list_directory(directory_path=".")`** - List directory contents with visual indicators
+  - 📁 for directories (with trailing slash)
+  - 📄 for files
+  - Defaults to current directory if no path provided
+  - Sorted alphabetically for consistent output
+
+#### Tool Safety Features
+- **Timeout Protection**: Commands have built-in 30-second timeouts
+- **Error Handling**: Comprehensive error messages for debugging
+- **Encoding Support**: UTF-8 support for international characters
+- **Permission Respect**: All operations respect system file permissions
 
 ### MCP Usage Examples
 
@@ -577,25 +769,28 @@ service = bus.get("com.rigel.RigelService")
 
 # System information and time
 response = service.QueryWithTools("What time is it and what system am I running on?")
-print(response)
 
 # File operations
 response = service.QueryWithTools("Read the README.md file and give me a brief summary")
-print(response)
 
-# Directory exploration
-response = service.QueryWithTools("List all Python files in the current directory")
-print(response)
+# Directory exploration with visual indicators
+response = service.QueryWithTools("List all files in the current directory and show me their types")
 
-# System commands
-response = service.QueryWithTools("Check disk usage and system uptime")
-print(response)
+# System commands with timeout protection
+response = service.QueryWithTools("Check disk usage with 'df -h' and show system uptime")
 
-# Advanced combinations
+# Combined operations
 response = service.QueryWithTools(
-    "Check the current time, list files in /home, and tell me about the system I'm running"
+    "Get the current time, list Python files in the current directory, and check who I am"
 )
-print(response)
+
+# File creation and management
+response = service.QueryWithTools("Create a test file called 'hello.txt' with 'Hello World' content")
+
+# Advanced system analysis
+response = service.QueryWithTools(
+    "Show me system information, current directory contents, and check if Python is installed"
+)
 ```
 
 #### Direct Python Usage
@@ -617,7 +812,32 @@ response = rigel.inference(messages=messages)
 print(response.content)
 ```
 
-### MCP Security Notes
+### MCP Setup Instructions
+
+When you first run RIGEL without MCP server configuration, you'll see this message:
+
+```
+Open server.py and add your custom mcp servers here before initializing
+There is a basic mcp server built in inside core/mcp/rigel_tools_server.py
+You can start it by typing 
+python core/mcp/rigel_tools_server.py
+```
+
+To set up MCP functionality:
+
+1. **For basic functionality**: Start the built-in MCP server in a separate terminal:
+   ```bash
+   python core/mcp/rigel_tools_server.py
+   ```
+
+2. **For advanced functionality**: Edit `server.py` to configure multiple MCP servers:
+   - Uncomment the `default_mcp = MultiServerMCPClient(...)` section
+   - Modify server configurations to match your setup
+   - Add additional MCP servers as needed
+
+3. **Restart RIGEL** to load the new MCP configuration
+
+#### MCP Security Notes
 
 - All file operations respect system permissions
 - Commands are executed in a controlled environment

@@ -113,9 +113,17 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
 hello_string = "Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]\n"
+default_mcp = MultiServerMCPClient(
+            {
+                "rigel tools": {
+                    "url": "http://localhost:8001/sse",
+                    "transport": "sse",
+                }
+            },
+        )
 
 class Rigel: # RIGEL Super Class. Use this to create derived classes
-    def __init__(self, model_name: str = "llama3.2", chatmode: str = "ollama"):
+    def __init__(self, model_name: str = "llama3.2", chatmode: str = "ollama", mcp_endpoint = default_mcp):
         self.model = model_name
         self.chatmode = chatmode
         self.llm = None
@@ -156,14 +164,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         #     prompt=self.prompt,
         #     verbose=False
         # )
-        self.client = MultiServerMCPClient(
-            {
-                "rigel tools": {
-                    "url": "http://localhost:8001/sse",
-                    "transport": "sse",
-                }
-            },
-        )
+        self.client = mcp_endpoint
         
 
     def inference(self, messages: list, model: str = None):
@@ -399,8 +400,8 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             syslog.warning(f"Could not clear memory for thread {thread_id}: {e}")
 
 class RigelOllama(Rigel): # RIGEL with ollama backend
-    def __init__(self, model_name: str = "llama3.2"):
-        super().__init__(model_name=model_name, chatmode="ollama")
+    def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
+        super().__init__(model_name=model_name, chatmode="ollama", mcp_endpoint=mcp_endpoint)
         self.llm = ChatOllama(model=self.model)
     
     def inference(self, messages: list, model: str = None):
@@ -409,8 +410,8 @@ class RigelOllama(Rigel): # RIGEL with ollama backend
         return super().inference(messages)
 
 class RigelGroq(Rigel): # RIGEL with groq backend
-    def __init__(self, model_name: str = "llama3-70b-8192", temp: float = 0.7):
-        super().__init__(model_name=model_name, chatmode="groq")
+    def __init__(self, model_name: str = "llama3-70b-8192", temp: float = 0.7,  mcp_endpoint = default_mcp):
+        super().__init__(model_name=model_name, chatmode="groq", mcp_endpoint=mcp_endpoint)
         if "GROQ_API_KEY" not in os.environ:
             os.environ["GROQ_API_KEY"] = getpass.getpass("Enter your Groq API key: ")
         self.llm = ChatGroq(model=self.model,

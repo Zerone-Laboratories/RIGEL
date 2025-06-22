@@ -25,6 +25,7 @@ import asyncio
 import concurrent.futures
 import os
 import tempfile
+from langchain_mcp_adapters.client import MultiServerMCPClient
 # Initialize logging
 syslog = SysLog(name="RigelDBusServer", level="INFO", log_file="server.log")
 
@@ -210,9 +211,40 @@ if __name__ == "__main__":
     print("")
     print("Select Required Backend :")
     backend_choice = int(input("Select '1' for GROQ and '2' for OLLAMA "))
-    
+    default_mcp = None
+    # How to add an MCP server
+    # default_mcp = MultiServerMCPClient(
+    #     {
+    #         "rigel tools": {
+    #             "url": "http://localhost:8001/sse",
+    #             "transport": "sse",
+    #         },
+    #         "python-toolbox": {
+    #             "command": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv/bin/python",
+    #             "args": [
+    #                 "-m",
+    #                 "mcp_python_toolbox",
+    #                 "--workspace",
+    #                 "/home/zerone/Documents/RIGEL_Data"
+    #             ],
+    #             "env": {
+    #                 "PYTHONPATH": "/home/zerone/Projects/NotMine/mcp_python_toolbox/src",
+    #                 "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    #                 "VIRTUAL_ENV": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv",
+    #                 "PYTHONHOME": ""
+    #             },
+    #             "transport": "stdio"
+    #         }
+    #     },
+    # )
+    if default_mcp == None:
+        print("""Open server.py and add your custom mcp servers here before initializing
+              There is a basic mcp server built in inside core/mcp/rigel_tools_server.py
+              You can start it by typing 
+              python core/mcp/rigel_tools_server.py
+              """)
     if backend_choice == 1:
-        rigel = RigelGroq()
+        rigel = RigelGroq(model_name="llama-3.3-70b-versatile", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
     else:
         rigel = RigelOllama()
