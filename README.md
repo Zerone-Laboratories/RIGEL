@@ -17,7 +17,9 @@
 - [Supported Backends](#supported-backends)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-  - [D-Bus Server](#d-bus-server)
+  - [Main Launcher (Recommended)](#main-launcher-recommended)
+  - [D-Bus Server (Linux Desktop Integration)](#d-bus-server-linux-desktop-integration)
+  - [Web Server (HTTP REST API)](#web-server-http-rest-api)
   - [Starting the MCP Server](#starting-the-mcp-server-on-a-separate-instance)
   - [Configuring MCP Servers](#configuring-mcp-servers)
   - [Using the D-Bus Service](#using-the-d-bus-service)
@@ -45,6 +47,10 @@
   - [Available D-Bus Endpoints](#available-d-bus-endpoints)
   - [Running the D-Bus Server](#running-the-d-bus-server)
   - [D-Bus Client Examples](#d-bus-client-examples)
+- [Web Server](#web-server)
+  - [Web API Endpoints](#web-api-endpoints)
+  - [Running the Web Server](#running-the-web-server)
+  - [Web API Usage Examples](#web-api-usage-examples)
 - [Environment Variables](#environment-variables)
 - [Logging](#logging)
 - [Contributing](#contributing)
@@ -199,17 +205,109 @@ sudo dnf install python3-gobject python3-gobject-cairo gtk3-devel
 
 ## Quick Start
 
-### D-Bus Server
+RIGEL offers two server modes to suit different use cases and environments:
 
-RIGEL's primary interface is through its D-Bus server, providing system-wide AI assistance with advanced tool capabilities.
+### Main Launcher (Recommended)
+
+Use the main launcher to easily choose between server modes:
+
+```bash
+python main.py
+```
+
+This will present you with options to run either the D-Bus server or Web server, with automatic dependency checking and helpful setup instructions.
+
+### D-Bus Server (Linux Desktop Integration)
+
+RIGEL's D-Bus server provides system-wide AI assistance with advanced tool capabilities, perfect for Linux desktop integration.
+
+**Best for:**
+- Linux desktop environments
+- System-wide AI assistance
+- Inter-process communication
+- Desktop application integration
 
 #### Starting the D-Bus Server
 
 ```bash
-python server.py
+# Using the main launcher (recommended)
+python main.py
+# Select option 1
+
+# Or directly
+python dbus_server.py
 ```
 
-The server will prompt you to choose between Groq (1) or Ollama (2) backend.
+### Web Server (HTTP REST API)
+
+RIGEL's web server provides a REST API interface accessible from any HTTP client, with automatic OpenAPI documentation.
+
+**Best for:**
+- Cross-platform compatibility
+- Remote access
+- Web applications
+- Mobile app backends
+- API integrations
+
+#### Starting the Web Server
+
+```bash
+# Using the main launcher (recommended)
+python main.py
+# Select option 2
+
+# Or directly
+python web_server.py
+```
+
+The web server will be available at:
+- **Main API**: http://localhost:8000
+- **Interactive Documentation**: http://localhost:8000/docs
+- **OpenAPI Schema**: http://localhost:8000/openapi.json
+
+#### Web Server Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Service information |
+| `/query` | POST | Basic inference |
+| `/query-with-memory` | POST | Inference with conversation memory |
+| `/query-think` | POST | Advanced thinking capabilities |
+| `/query-with-tools` | POST | Inference with MCP tools support |
+| `/synthesize-text` | POST | Convert text to speech |
+| `/recognize-audio` | POST | Transcribe audio file to text |
+| `/license-info` | GET | License and copyright information |
+
+#### Web API Usage Examples
+
+```bash
+# Basic query
+curl -X POST "http://localhost:8000/query" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "Hello RIGEL!"}'
+
+# Query with memory
+curl -X POST "http://localhost:8000/query-with-memory" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "My name is Alice", "id": "user123"}'
+
+# Query with tools
+curl -X POST "http://localhost:8000/query-with-tools" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "What time is it and list files in current directory?"}'
+
+# Text synthesis
+curl -X POST "http://localhost:8000/synthesize-text" \
+     -H "Content-Type: application/json" \
+     -d '{"text": "Hello, this is RIGEL speaking!", "mode": "chunk"}'
+
+# Audio recognition
+curl -X POST "http://localhost:8000/recognize-audio" \
+     -F "audio_file=@audio.wav" \
+     -F "model=tiny"
+```
+
+Both servers support the same core functionality but with different interfaces. Choose the one that best fits your use case.
 
 #### Starting the MCP Server on a separate instance
 
@@ -912,8 +1010,18 @@ RIGEL's D-Bus server provides a powerful system-wide interface for AI assistance
 
 ### Running the D-Bus Server
 
+#### Using the Main Launcher (Recommended)
+
 ```bash
-python server.py
+python main.py
+```
+
+Select option 1 for D-Bus server. The launcher will check dependencies and provide helpful setup instructions if needed.
+
+#### Direct Launch
+
+```bash
+python dbus_server.py
 ```
 
 The server will prompt you to choose between:
@@ -948,6 +1056,216 @@ service.QueryWithTools("Create a backup script for my important files")
 # Complex reasoning
 service.QueryThink("Analyze the pros and cons of microservices vs monolithic architecture")
 ```
+
+## Web Server
+
+RIGEL's web server provides a modern REST API interface with automatic OpenAPI documentation, making it easy to integrate RIGEL into web applications, mobile apps, and other HTTP-based systems.
+
+### Web API Endpoints
+
+The web server provides the same functionality as the D-Bus server through HTTP endpoints:
+
+| Endpoint | Method | Description | Request Body |
+|----------|--------|-------------|--------------|
+| `/` | GET | Service information and available endpoints | None |
+| `/query` | POST | Basic inference | `{"query": "string"}` |
+| `/query-with-memory` | POST | Inference with conversation memory | `{"query": "string", "id": "string"}` |
+| `/query-think` | POST | Advanced thinking capabilities | `{"query": "string"}` |
+| `/query-with-tools` | POST | Inference with MCP tools support | `{"query": "string"}` |
+| `/synthesize-text` | POST | Convert text to speech | `{"text": "string", "mode": "chunk/linear"}` |
+| `/recognize-audio` | POST | Transcribe audio file to text | Multipart form with `audio_file` and `model` |
+| `/license-info` | GET | License and copyright information | None |
+
+### Running the Web Server
+
+#### Using the Main Launcher (Recommended)
+
+```bash
+python main.py
+```
+
+Select option 2 for Web server. The launcher will check dependencies and provide setup instructions if needed.
+
+#### Direct Launch
+
+```bash
+python web_server.py
+```
+
+The server will start on `http://localhost:8000` with the following URLs available:
+- **Main API**: http://localhost:8000
+- **Interactive Documentation**: http://localhost:8000/docs
+- **OpenAPI Schema**: http://localhost:8000/openapi.json
+
+### Web API Usage Examples
+
+#### Using curl
+
+```bash
+# Service information
+curl http://localhost:8000/
+
+# Basic query
+curl -X POST "http://localhost:8000/query" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "Hello RIGEL! Tell me about artificial intelligence."}'
+
+# Query with memory - start conversation
+curl -X POST "http://localhost:8000/query-with-memory" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "My name is Alice and I am a software developer", "id": "user123"}'
+
+# Query with memory - continue conversation
+curl -X POST "http://localhost:8000/query-with-memory" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "What do you know about me?", "id": "user123"}'
+
+# Advanced thinking
+curl -X POST "http://localhost:8000/query-think" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "I need to choose between two job offers. One pays more but has worse work-life balance. Help me think through this decision."}'
+
+# Query with tools
+curl -X POST "http://localhost:8000/query-with-tools" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "What time is it? Also, list the files in the current directory and summarize any README files you find."}'
+
+# Text synthesis
+curl -X POST "http://localhost:8000/synthesize-text" \
+     -H "Content-Type: application/json" \
+     -d '{"text": "Hello, this is RIGEL speaking! I am now available via web API.", "mode": "chunk"}'
+
+# Audio recognition
+curl -X POST "http://localhost:8000/recognize-audio" \
+     -F "audio_file=@path/to/audio.wav" \
+     -F "model=tiny"
+
+# License information
+curl http://localhost:8000/license-info
+```
+
+#### Using Python requests
+
+```python
+import requests
+import json
+
+# Base URL
+base_url = "http://localhost:8000"
+
+# Basic query
+response = requests.post(
+    f"{base_url}/query",
+    json={"query": "What is machine learning?"}
+)
+print(response.json())
+
+# Query with memory
+response = requests.post(
+    f"{base_url}/query-with-memory",
+    json={
+        "query": "Remember that I am working on a Python project",
+        "id": "session_001"
+    }
+)
+print(response.json())
+
+# Follow up with memory
+response = requests.post(
+    f"{base_url}/query-with-memory",
+    json={
+        "query": "What programming language am I using?",
+        "id": "session_001"
+    }
+)
+print(response.json())
+
+# Query with tools
+response = requests.post(
+    f"{base_url}/query-with-tools",
+    json={"query": "Check system information and current time"}
+)
+print(response.json())
+
+# Text synthesis
+response = requests.post(
+    f"{base_url}/synthesize-text",
+    json={
+        "text": "This is a test of the voice synthesis system",
+        "mode": "chunk"
+    }
+)
+print(response.json())
+
+# Audio recognition
+with open("audio.wav", "rb") as audio_file:
+    response = requests.post(
+        f"{base_url}/recognize-audio",
+        files={"audio_file": audio_file},
+        data={"model": "tiny"}
+    )
+print(response.json())
+```
+
+#### Using JavaScript/Node.js
+
+```javascript
+const axios = require('axios');
+
+const baseURL = 'http://localhost:8000';
+
+// Basic query
+async function basicQuery() {
+    try {
+        const response = await axios.post(`${baseURL}/query`, {
+            query: "Explain quantum computing in simple terms"
+        });
+        console.log(response.data);
+    } catch (error) {
+        console.error('Error:', error.response.data);
+    }
+}
+
+// Query with memory
+async function queryWithMemory() {
+    try {
+        // Start conversation
+        let response = await axios.post(`${baseURL}/query-with-memory`, {
+            query: "I'm learning web development with React",
+            id: "webdev_session"
+        });
+        console.log('First response:', response.data);
+
+        // Continue conversation
+        response = await axios.post(`${baseURL}/query-with-memory`, {
+            query: "What should I learn next?",
+            id: "webdev_session"
+        });
+        console.log('Follow-up response:', response.data);
+    } catch (error) {
+        console.error('Error:', error.response.data);
+    }
+}
+
+// Query with tools
+async function queryWithTools() {
+    try {
+        const response = await axios.post(`${baseURL}/query-with-tools`, {
+            query: "What's the current time and what files are in this directory?"
+        });
+        console.log(response.data);
+    } catch (error) {
+        console.error('Error:', error.response.data);
+    }
+}
+
+// Run examples
+basicQuery();
+queryWithMemory();
+queryWithTools();
+```
+
+The web server provides the same powerful AI capabilities as the D-Bus interface but with the flexibility and accessibility of HTTP/REST APIs, making it perfect for web applications, mobile apps, and cross-platform integrations.
 
 ## Environment Variables
 
