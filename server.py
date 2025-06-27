@@ -121,7 +121,7 @@ class RigelServer(object):
     
     def QueryThink(self, query):
         global rigel
-        response = rigel.inference(messages=query)
+        response = rigel.think(query)
         return response
     
     def QueryWithTools(self, query):
@@ -213,30 +213,30 @@ if __name__ == "__main__":
     backend_choice = int(input("Select '1' for GROQ and '2' for OLLAMA "))
     default_mcp = None
     # How to add an MCP server
-    # default_mcp = MultiServerMCPClient(
-    #     {
-    #         "rigel tools": {
-    #             "url": "http://localhost:8001/sse",
-    #             "transport": "sse",
-    #         },
-    #         "python-toolbox": {
-    #             "command": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv/bin/python",
-    #             "args": [
-    #                 "-m",
-    #                 "mcp_python_toolbox",
-    #                 "--workspace",
-    #                 "/home/zerone/Documents/RIGEL_Data"
-    #             ],
-    #             "env": {
-    #                 "PYTHONPATH": "/home/zerone/Projects/NotMine/mcp_python_toolbox/src",
-    #                 "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-    #                 "VIRTUAL_ENV": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv",
-    #                 "PYTHONHOME": ""
-    #             },
-    #             "transport": "stdio"
-    #         }
-    #     },
-    # )
+    default_mcp = MultiServerMCPClient(
+        {
+            "rigel tools": {
+                "url": "http://localhost:8001/sse",
+                "transport": "sse",
+            },
+            "python-toolbox": {
+                "command": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv/bin/python",
+                "args": [
+                    "-m",
+                    "mcp_python_toolbox",
+                    "--workspace",
+                    "/home/zerone/Documents/RIGEL_Data"
+                ],
+                "env": {
+                    "PYTHONPATH": "/home/zerone/Projects/NotMine/mcp_python_toolbox/src",
+                    "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                    "VIRTUAL_ENV": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv",
+                    "PYTHONHOME": ""
+                },
+                "transport": "stdio"
+            }
+        },
+    )
     if default_mcp == None:
         print("""Open server.py and add your custom mcp servers here before initializing
               There is a basic mcp server built in inside core/mcp/rigel_tools_server.py

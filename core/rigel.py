@@ -108,6 +108,7 @@ from mcp.client.stdio import stdio_client
 from langgraph.prebuilt import create_react_agent
 import re
 from langchain.chains import ConversationChain
+import random
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 
@@ -148,6 +149,12 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                         If it's impossible, say 'The task is impossible.'
                         (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.
         """
+
+        self.think_n_plan = """
+        Analyse and try to find the best and optimum way to do a specific problem that the user requested. If the thinking process is done, 
+        Say exactly 'Task is done'. If its impossible exactly say 'Task is impossible'.
+        """
+
         self.continuity_breakers = [
             r"The task is done\.",
             r"Please provide more information\.",
@@ -340,6 +347,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
     def think(self, think_message, model: str = None):
         self.thought_prompt = f"""
         Think of the best way to do this and list it out in a short manner. nothing more or nothing less.
+        If the thinking process is done, say exactly 'The task is done'. If it's impossible exactly say 'The task is impossible'.
         """
         self.prompt = [
             (
@@ -351,8 +359,29 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                 think_message,
             ),
         ]
-        output = self.inference(self.prompt)
-        return output
+        max_iterations = 10
+        iteration_count = 0
+        while iteration_count < max_iterations:
+            iteration_count += 1
+            output = self.inference_with_memory(self.prompt, thread_id=f"THINK{random.random()}")
+            if hasattr(output, 'content') and output.content:
+                response_content = output.content
+                
+                continuity_breaker_found = False
+                for pattern in self.continuity_patterns:
+                    if pattern.search(response_content):
+                        syslog.info(f"Think method: Continuity breaker detected: {response_content}")
+                        continuity_breaker_found = True
+                        break
+                
+                if continuity_breaker_found:
+                    return response_content
+                    
+                syslog.info(f"Think method: No continuity breaker detected. Continuing (iteration {iteration_count})")
+                syslog.info(f"Current output {response_content}")
+            
+        syslog.warning(f"Think method: Reached maximum iterations ({max_iterations}) without continuity breaker")
+        return response_content
     
     def decision(self, decision_message, model: str = None):
         "[TODO]"
