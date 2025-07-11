@@ -48,6 +48,7 @@ class RigelServer(object):
             <method name='QueryWithMemory'>
                 <arg type='s' name='query' direction='in'/>
                 <arg type='s' name='id' direction='in'/>
+                <arg type='s' name='RAG' direction='in'/>
                 <arg type='s' name='response' direction='out'/>
             </method>
             <method name='QueryThink'>
@@ -68,7 +69,6 @@ class RigelServer(object):
                 <arg type='s' name='model' direction='in'/>
                 <arg type='s' name='transcription' direction='out'/>
             </method>
-
             <method name='GetLicenseInfo'>
                 <arg type='s' name='license_info' direction='out'/>
             </method>
@@ -104,40 +104,46 @@ class RigelServer(object):
         # print(response)
         return response.content
 
-    def QueryWithMemory(self, query, id):
+    def QueryWithMemory(self, query, id, RAG):
         global system_prompt, rigel
+        print(f"DEBUG: {RAG}")
         messages = [
             (
                 "system",
-                f"{system_prompt}"
+                f"{"" if RAG else system_prompt}"
             ),
             (
                 "human", f"{query}"
             )
         ]
-        response = rigel.inference_with_memory(messages=messages, thread_id=id)
+        if RAG=='"true"':
+            RAG_Stat = True
+        else:
+            RAG_Stat = False
+        print(f"DEBUG: RAGSTAT = {RAG_Stat}")
+        response = rigel.inference_with_memory(messages=messages, thread_id=id, RAG=RAG_Stat)
         # print(response)
         return response.content
-    
+
     def QueryThink(self, query):
         global rigel
         response = rigel.think(query)
         return response
-    
+
     def QueryWithTools(self, query):
         global rigel
-        
+
         syslog.info(f"QueryWithTools called with query: {query[:100]}...")
         try:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(self._run_async_tools_query, query)
                 result = future.result(timeout=120)
-            
+
             if hasattr(result, 'content'):
                 return result.content
             else:
                 return str(result)
-                
+
         except concurrent.futures.TimeoutError:
             error_msg = "Query with tools timed out after 2 minutes"
             syslog.error(error_msg)
@@ -146,7 +152,7 @@ class RigelServer(object):
             error_msg = f"Error occurred during tool-based inference: {str(e)}"
             syslog.error(error_msg)
             return f"Error: {error_msg}"
-    
+
     def _run_async_tools_query(self, query):
         global rigel
         loop = asyncio.new_event_loop()
@@ -158,24 +164,24 @@ class RigelServer(object):
 
     def SynthesizeText(self, text, mode="chunk"):
         global synthesizer
-        
+
         try:
             syslog.info(f"SynthesizeText called with mode: {mode}, text length: {len(text)}")
-            
+
             if synthesizer is None:
                 synthesizer = Synthesizer(mode=mode)
             else:
                 synthesizer.mode = mode
             def _synthesize():
                 synthesizer.synthesize(text)
-            
+
             import threading
             synthesis_thread = threading.Thread(target=_synthesize)
             synthesis_thread.daemon = True
             synthesis_thread.start()
-            
+
             return f"Text synthesis started successfully with mode: {mode}"
-            
+
         except Exception as e:
             error_msg = f"Error in text synthesis: {str(e)}"
             syslog.error(error_msg)
@@ -183,7 +189,7 @@ class RigelServer(object):
 
     def RecognizeAudio(self, audio_file_path, model="tiny"):
         global recognizer
-        
+
         try:
             syslog.info(f"RecognizeAudio called with file: {audio_file_path}, model: {model}")
             if not os.path.exists(audio_file_path):
@@ -194,9 +200,9 @@ class RigelServer(object):
                 recognizer = Recognizer(model=model)
             transcription = recognizer.transcribe(audio_file_path)
             syslog.info(f"Transcription completed: {transcription[:100]}...")
-            
+
             return transcription
-            
+
         except Exception as e:
             error_msg = f"Error in audio recognition: {str(e)}"
             syslog.error(error_msg)
@@ -211,6 +217,7 @@ if __name__ == "__main__":
     print("")
     print("Select Required Backend :")
     backend_choice = int(input("Select '1' for GROQ and '2' for OLLAMA "))
+
     default_mcp = None
     # How to add an MCP server
     default_mcp = MultiServerMCPClient(
@@ -240,7 +247,7 @@ if __name__ == "__main__":
     if default_mcp == None:
         print("""Open server.py and add your custom mcp servers here before initializing
               There is a basic mcp server built in inside core/mcp/rigel_tools_server.py
-              You can start it by typing 
+              You can start it by typing
               python core/mcp/rigel_tools_server.py
               """)
     if backend_choice == 1:
@@ -249,6 +256,10 @@ if __name__ == "__main__":
     else:
         rigel = RigelOllama()
         print("RIGEL initialized with OLLAMA backend")
+
+
+    print("Initializing Vector Database...")
+    rigel.readAndInitializeDatabase()
 
     # Initialize voice components
     print("Initializing voice synthesis and recognition...")
@@ -262,7 +273,7 @@ if __name__ == "__main__":
 
     bus = SessionBus()
     bus.publish("com.rigel.RigelService", RigelServer())
-    
+
     print("RIGEL D-Bus service is running...")
     print("Service name: com.rigel.RigelService")
     print("Interface: com.rigel.RigelService")

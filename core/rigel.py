@@ -17,86 +17,87 @@
 
 __RIGEL = """
 RIGEL V4.0 - Main Source
-                                                                              :::::   :::::                                                                              
-                                                                        ::                     ::                                                                        
-                                                                     :                             :                                                                     
-                                                                  :                                   :                                                                  
-                                                               :                                         :                                                               
-                                                             :                                             :                                                             
-                                                           :                                                 :                                                           
-                                                           :                                                 :                                                           
-                                                                                                                                                                         
-                                                                         ::::               ::::                                                                         
-                                                            :       ::                             ::       :                                                            
-                                                                :                                       :                                                                
-                                                            ::                                             ::                                                            
-                                                         ::  :                                             :  ::                                                         
-                                                       :     :                                             :     :                                                       
-                                                    :               :::::::::                   :::                 :                                                    
-                                                  :           :::::::    :::::::::::::::::::::         ::::           :                                                  
-                                                :         ::  :::  :::::::::::::::::   :::::::::::::::    :  ::         :                                                
-                                                      ::    ::::::::::                             :::::::::     ::                                                      
-                                            :      :     :::::::                    ::::                 :::: ::     ::     :                                            
-                                          :    ::    :: ::::   :       ::::            ::      :::       :   ::   ::     :    :                                          
-                                         :  :     :   :::       : ::                      :          :: :        ::   :     :  :                                         
-                                         ::    :   :  :       :::                           :           :::          :   :    ::                                         
-                                       :  : :   :    :    :     :                             :         :     :         :   : :  :                                       
-                                    :    :::  :     :  :                                                         :         : :::    :                                    
-                                  :    :   ::      ::            :                                     :            :       ::   :    :                                  
-                                     :   :  :    ::                                                                   :     :      :                                     
-                             :    :   :        :::                              :::::::::            ::                  :        :   :    :                             
-                           :    :   :        :: :                 :         :::::       :::::         ::                  ::        :   :    :                           
-                         :    :   :        :  ::                         ::::               ::::         :                :  :        :   :    :                         
-                       :   ::   :        :    ::                   :   :::                     :::   :     :                   :        :   :    :                       
-                     :        :        :                           :::::                         :: ::       :                   :        :        :                     
-                            ::       :          :                  ::                               :::        :        :          :       ::                            
-                  :           :    :             :                  :                               :                  :             :    :                              
-                :        :     :           :                   :         :::                 :::                  :                    : :              :                
-              :        :        :         :                  :    : :::                            :: :    :        ::                  :        :        :              
-                     :        :                             :   ::                                     ::            ::                   :        :                     
-           :        :                               :     :   ::      :                           :      :::  :     :                                        :           
-         :        :        :            :            :   : :                                                 :::   :                         :        :        :         
-        :                            :                 ::                                                       ::         :       :                            :        
-      :        :        :             ::              ::                :                       :                ::          :    :             :        :        :      
-                                      :             ::                                                             ::                                                    
-   :        :        :                   :        : :      :             :                     :             :      : :        ::                  :        :        :   
-  :        :                         :          :  :      :                                                   :      :  :         :                          :        :  
-:        :        :                 :       : :   :       :                                                   :       :   : :      :                                     
- :        :        :                        ::                                       0                                     ::                        :        :        : 
-                                       :   :   :                                            :                            :   :   :                                       
-    :        :        :                  :             :                     :             :                     :             :                           :        :    
-                       :                          :   :        :                          :              :        :   :                          :                       
-       :        :                     :     :       :: :        :               :       :               :        : ::       :     :                     :        :       
-                          :          :        :      :: :                         :   :                           ::      :                   :                          
-          :        :        :                           :::        :                                 :         ::                                    :        :          
-            :                :    :              :        ::         :                             :         ::        :              :    :                :            
-                      :        :                   :        ::                                             ::        :                   :        :        :             
-               :        :       :                    :        :::                                       :::        :                    :       :        :               
-                 :            :   :               :    :        :  :       :                 :       :  :        :    :               :   :            :                 
-                           : :      :                ::::             ::       ::       ::       ::             : ::                :      : :                           
-                    :       ::        :                  :::                :::  :::::::  ::::               :::                  :        ::       :                    
-                      :    :: ::        :                   ::::      :                           :      ::::                   :        :: :     :                      
-                        :      :::        :                   :     :::::::                   :::::::     :                   :        :::      :                        
-                          :       :::       :                   :         :::::::::::::::::::::         :                   :       :::       :                          
-                            :       :::       :                   :               :::::               :                   :       :::       :                            
-                                       :::       :                                                                      :      :::        :                              
-                                 :       ::::      :                                                                 :      ::::       :                                 
-                                   :        :::::     :                :                                          :     :::::        :                                   
-                                     ::        :   ::   ::               :                     :               ::   ::   :         :                                     
-                                        :         :     ::::::             :                 :             ::::::     :         :                                        
-                                           :         :       ::::::          :             :          ::::::       :         :                                           
-                                              :         ::         :::::::::  :::       :::  ::::::::::        ::         :                                              
-                                                 :          ::            :::::::::::::::::::::            ::          :                                                 
-                                                    ::           ::                :::                ::           ::                                                    
-                                                        ::             :::                     :::             ::                                                        
-                                                             ::                                           ::                                                             
-                                                                  :::                               :::                                                                  
-                                                                           ::::::::: :::::::::                      
+                                                                              :::::   :::::
+                                                                        ::                     ::
+                                                                     :                             :
+                                                                  :                                   :
+                                                               :                                         :
+                                                             :                                             :
+                                                           :                                                 :
+                                                           :                                                 :
+
+                                                                         ::::               ::::
+                                                            :       ::                             ::       :
+                                                                :                                       :
+                                                            ::                                             ::
+                                                         ::  :                                             :  ::
+                                                       :     :                                             :     :
+                                                    :               :::::::::                   :::                 :
+                                                  :           :::::::    :::::::::::::::::::::         ::::           :
+                                                :         ::  :::  :::::::::::::::::   :::::::::::::::    :  ::         :
+                                                      ::    ::::::::::                             :::::::::     ::
+                                            :      :     :::::::                    ::::                 :::: ::     ::     :
+                                          :    ::    :: ::::   :       ::::            ::      :::       :   ::   ::     :    :
+                                         :  :     :   :::       : ::                      :          :: :        ::   :     :  :
+                                         ::    :   :  :       :::                           :           :::          :   :    ::
+                                       :  : :   :    :    :     :                             :         :     :         :   : :  :
+                                    :    :::  :     :  :                                                         :         : :::    :
+                                  :    :   ::      ::            :                                     :            :       ::   :    :
+                                     :   :  :    ::                                                                   :     :      :
+                             :    :   :        :::                              :::::::::            ::                  :        :   :    :
+                           :    :   :        :: :                 :         :::::       :::::         ::                  ::        :   :    :
+                         :    :   :        :  ::                         ::::               ::::         :                :  :        :   :    :
+                       :   ::   :        :    ::                   :   :::                     :::   :     :                   :        :   :    :
+                     :        :        :                           :::::                         :: ::       :                   :        :        :
+                            ::       :          :                  ::                               :::        :        :          :       ::
+                  :           :    :             :                  :                               :                  :             :    :
+                :        :     :           :                   :         :::                 :::                  :                    : :              :
+              :        :        :         :                  :    : :::                            :: :    :        ::                  :        :        :
+                     :        :                             :   ::                                     ::            ::                   :        :
+           :        :                               :     :   ::      :                           :      :::  :     :                                        :
+         :        :        :            :            :   : :                                                 :::   :                         :        :        :
+        :                            :                 ::                                                       ::         :       :                            :
+      :        :        :             ::              ::                :                       :                ::          :    :             :        :        :
+                                      :             ::                                                             ::
+   :        :        :                   :        : :      :             :                     :             :      : :        ::                  :        :        :
+  :        :                         :          :  :      :                                                   :      :  :         :                          :        :
+:        :        :                 :       : :   :       :                                                   :       :   : :      :
+ :        :        :                        ::                                       0                                     ::                        :        :        :
+                                       :   :   :                                            :                            :   :   :
+    :        :        :                  :             :                     :             :                     :             :                           :        :
+                       :                          :   :        :                          :              :        :   :                          :
+       :        :                     :     :       :: :        :               :       :               :        : ::       :     :                     :        :
+                          :          :        :      :: :                         :   :                           ::      :                   :
+          :        :        :                           :::        :                                 :         ::                                    :        :
+            :                :    :              :        ::         :                             :         ::        :              :    :                :
+                      :        :                   :        ::                                             ::        :                   :        :        :
+               :        :       :                    :        :::                                       :::        :                    :       :        :
+                 :            :   :               :    :        :  :       :                 :       :  :        :    :               :   :            :
+                           : :      :                ::::             ::       ::       ::       ::             : ::                :      : :
+                    :       ::        :                  :::                :::  :::::::  ::::               :::                  :        ::       :
+                      :    :: ::        :                   ::::      :                           :      ::::                   :        :: :     :
+                        :      :::        :                   :     :::::::                   :::::::     :                   :        :::      :
+                          :       :::       :                   :         :::::::::::::::::::::         :                   :       :::       :
+                            :       :::       :                   :               :::::               :                   :       :::       :
+                                       :::       :                                                                      :      :::        :
+                                 :       ::::      :                                                                 :      ::::       :
+                                   :        :::::     :                :                                          :     :::::        :
+                                     ::        :   ::   ::               :                     :               ::   ::   :         :
+                                        :         :     ::::::             :                 :             ::::::     :         :
+                                           :         :       ::::::          :             :          ::::::       :         :
+                                              :         ::         :::::::::  :::       :::  ::::::::::        ::         :
+                                                 :          ::            :::::::::::::::::::::            ::          :
+                                                    ::           ::                :::                ::           ::
+                                                        ::             :::                     :::             ::
+                                                             ::                                           ::
+                                                                  :::                               :::
+                                                                           ::::::::: :::::::::
 """
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from core.logger import SysLog
 import os
+import glob
 import getpass
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
@@ -110,6 +111,7 @@ import re
 from langchain.chains import ConversationChain
 import random
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from core.rdb import DBConn
 
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
@@ -136,22 +138,23 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.app = None
         self.agent = None
         self.client = None
+        self.ragdb = None
         self._initialized = False
         self.server_params = StdioServerParameters(
             command="python",
             args=["/home/zerone/Projects/RIGEL_SERVICE/core/mcp/rigel_tools_server.py"],
         )
         self.continuity = """
-                        Proceed. You CAN run code on my machine. 
+                        Proceed. You CAN run code on my machine.
                         When providing tool outputs (like file listings, command results, etc.), always include the actual output in your response.
                         If the entire task I asked for is done, say exactly 'The task is done.' after providing all relevant outputs and results.
-                        If you need some specific information (like username or password) say EXACTLY 'Please provide more information.' 
+                        If you need some specific information (like username or password) say EXACTLY 'Please provide more information.'
                         If it's impossible, say 'The task is impossible.'
                         (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.
         """
 
         self.think_n_plan = """
-        Analyse and try to find the best and optimum way to do a specific problem that the user requested. If the thinking process is done, 
+        Analyse and try to find the best and optimum way to do a specific problem that the user requested. If the thinking process is done,
         Say exactly 'Task is done'. If its impossible exactly say 'Task is impossible'.
         """
 
@@ -172,9 +175,31 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         #     verbose=False
         # )
         self.client = mcp_endpoint
-        
 
-    def inference(self, messages: list, model: str = None):
+    def readAndInitializeDatabase(self):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        rigel_data_dir = os.path.join(current_dir, "rigel_data")
+        pdf_pattern = os.path.join(rigel_data_dir, "*.pdf")
+        pdf_files = glob.glob(pdf_pattern)
+
+        if not pdf_files:
+            syslog.warning(f"No PDF files found in {rigel_data_dir}")
+            return
+
+        self.ragdb = DBConn()
+        for pdf_file in pdf_files:
+            try:
+                self.ragdb.load_data_from_pdf_path(pdf_file)
+                syslog.info(f"Loaded PDF file: {os.path.basename(pdf_file)}")
+            except Exception as e:
+                syslog.error(f"Error loading PDF file {pdf_file}: {str(e)}")
+
+        syslog.info(f"Database Successfully Initialized with {len(pdf_files)} PDF files!")
+
+
+
+
+    def inference(self, messages: list, model: str = None, RAG: bool = False):
         self.messages = messages
         """
         Input should be in following format:
@@ -192,7 +217,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.chain = self.prompt | self.llm
         response = self.chain.invoke({})
         return AIMessage(content=response.content)
-    
+
     async def __init_mcp(self):
         if not self._initialized:
             try:
@@ -211,7 +236,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         except Exception as e:
             syslog.warning(f"Error during MCP cleanup: {e}")
 
-    
+
     async def inference_with_tools(self, prompt, tools=None):
         if not self._initialized:
             await self.__init_mcp()
@@ -220,11 +245,11 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             SystemMessage(content=self.continuity),
             {"role": "user", "content": prompt}
         ]
-        
+
         max_iterations = 10
         iteration_count = 0
         complete_output = []
-        
+
         try:
             while iteration_count < max_iterations:
                 iteration_count += 1
@@ -237,7 +262,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                         syslog.error("Inference Failed !, Retrying...")
                         pass
                 new_messages = result["messages"][len(messages):]
-                
+
                 iteration_output = []
                 for msg in new_messages:
                     if hasattr(msg, 'content') and msg.content:
@@ -249,31 +274,31 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                         iteration_output.append(f"Tool Result ({msg.name}): {msg.content}")
                     else:
                         iteration_output.append(str(msg))
-                
+
                 final_message = result["messages"][-1]
                 syslog.info(f"Currently Processing: {final_message}")
-                
+
                 if iteration_output:
                     complete_output.extend(iteration_output)
                 if hasattr(final_message, 'content') and final_message.content:
                     response_content = final_message.content
-                    
+
                     continuity_breaker_found = False
                     for pattern in self.continuity_patterns:
                         if pattern.search(response_content):
                             syslog.info(f"Continuity breaker detected: {response_content}")
                             continuity_breaker_found = True
                             break
-                    
+
                     if continuity_breaker_found:
                         full_response = "\n\n".join(complete_output)
                         return AIMessage(content=full_response)
-                    
+
                     syslog.info(f"No continuity breaker detected. Current output: {response_content}")
                     syslog.info(f"Continuing with task execution (iteration {iteration_count})")
                     messages = result["messages"]
                     messages.append({"role": "user", "content": "Continue with the task."})
-                    
+
                 else:
                     return AIMessage(content="\n\n".join(complete_output))
 
@@ -283,7 +308,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                 return AIMessage(content=f"{full_response}\n\nTask execution reached maximum iterations ({max_iterations}) without completion.")
             else:
                 return AIMessage(content=f"Task execution reached maximum iterations ({max_iterations}) without completion.")
-                
+
         except Exception as e:
             syslog.error(f"Error in inference_with_tools: {e}")
             if complete_output:
@@ -294,31 +319,39 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         finally:
             syslog.info("Cleaning Up MCP")
             await self.cleanup_mcp()
-    
-    def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default"):
+
+    def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default", RAG: bool = False):
         """
         use this function as follows
-        
+
         Args:
             messages: List of messages in format [("role", "content"), ...]
             model: Optional model name override
             thread_id: Thread ID for conversation memory
-        
+
         Returns:
             AIMessage with response content
         """
         if not self.app:
             self._setup_workflow()
-        
+
+        syslog.info(f"RAG IS CURRENTLY {RAG}")
+        if RAG:
+            data = self.ragdb.run_similar_search(next((msg for role, msg in messages if role == "human"), ""))
+            syslog.info(f"RAG Data Retrieved: {data}")
+            messages.append(("RAG",f"{data}"))
+
         formatted_messages = []
         for role, content in messages:
-            if role == "system":
+            if role == "system" or role  == "RAG":
+                syslog.info(f"Adding system message: {content}")
                 formatted_messages.append(SystemMessage(content=content))
             elif role == "human":
                 formatted_messages.append({"role": "user", "content": content})
             elif role == "ai":
                 formatted_messages.append({"role": "assistant", "content": content})
-        
+
+
         config = {"configurable": {"thread_id": thread_id}}
         response = self.app.invoke(
             {"messages": formatted_messages},
@@ -326,7 +359,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         )
         last_message = response["messages"][-1]
         return AIMessage(content=last_message.content)
-    
+
     def _setup_workflow(self):
         def call_model(state: MessagesState):
             system_prompt = (
@@ -342,8 +375,8 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         # Checkpointer
         self.memory = MemorySaver()
         self.app = self.workflow.compile(checkpointer=self.memory)
-        
-    
+
+
     def think(self, think_message, model: str = None):
         self.thought_prompt = f"""
         Think of the best way to do this and list it out in a short manner. nothing more or nothing less.
@@ -366,61 +399,61 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             output = self.inference_with_memory(self.prompt, thread_id=f"THINK{random.random()}")
             if hasattr(output, 'content') and output.content:
                 response_content = output.content
-                
+
                 continuity_breaker_found = False
                 for pattern in self.continuity_patterns:
                     if pattern.search(response_content):
                         syslog.info(f"Think method: Continuity breaker detected: {response_content}")
                         continuity_breaker_found = True
                         break
-                
+
                 if continuity_breaker_found:
                     return response_content
-                    
+
                 syslog.info(f"Think method: No continuity breaker detected. Continuing (iteration {iteration_count})")
                 syslog.info(f"Current output {response_content}")
-            
+
         syslog.warning(f"Think method: Reached maximum iterations ({max_iterations}) without continuity breaker")
         return response_content
-    
+
     def decision(self, decision_message, model: str = None):
         "[TODO]"
         return 0
-    
+
     def get_conversation_history(self, thread_id: str = "default"):
         """
         retrieve conversation
-        
+
         Args:
             thread_id: Thread ID to get history for
-            
+
         Returns:
             List of messages in the conversation
         """
         if not self.app:
             self._setup_workflow()
-            
+
         config = {"configurable": {"thread_id": thread_id}}
-        
+
         try:
             state = self.app.get_state(config)
             return state.values.get("messages", [])
         except Exception as e:
             syslog.warning(f"Could not retrieve conversation history: {e}")
             return []
-    
+
     def clear_memory(self, thread_id: str = "default"):
         """
         clear memory
-        
+
         Args:
             thread_id: Thread ID to clear
         """
         if not self.app or not self.memory:
             return
-            
+
         config = {"configurable": {"thread_id": thread_id}}
-        
+
         try:
             # This will clear the memory for the thread
             self.memory.delete(config)
@@ -432,7 +465,7 @@ class RigelOllama(Rigel): # RIGEL with ollama backend
     def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
         super().__init__(model_name=model_name, chatmode="ollama", mcp_endpoint=mcp_endpoint)
         self.llm = ChatOllama(model=self.model)
-    
+
     def inference(self, messages: list, model: str = None):
         if model:
             self.llm.model = model
@@ -451,7 +484,7 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         if model:
             self.llm.model = model
         return super().inference(messages)
-    
+
 
 # Some Demos
 if __name__ == "__main__":
@@ -476,10 +509,10 @@ if __name__ == "__main__":
     syslog.debug(f"Example Inference Groq :{messages_groq}")
     response_groq = rigel_groq.inference(messages=messages_groq)
     syslog.debug(response_groq.content)
-    
+
     # Example with memory functionality
     syslog.info("Testing memory functionality...")
-    
+
     # First conversation
     memory_messages_1 = [
         ("human", "My name is John. Remember this!"),
@@ -487,7 +520,7 @@ if __name__ == "__main__":
     syslog.debug(f"Memory Example 1: {memory_messages_1}")
     memory_response_1 = rigel.inference_with_memory(messages=memory_messages_1, thread_id="randomNumberGoesHere")
     syslog.debug(f"Response 1: {memory_response_1.content}")
-    
+
     # Second conversation - should remember the name
     memory_messages_2 = [
         ("human", "What's my name?"),
@@ -495,11 +528,11 @@ if __name__ == "__main__":
     syslog.debug(f"Memory Example 2: {memory_messages_2}")
     memory_response_2 = rigel.inference_with_memory(messages=memory_messages_2, thread_id="randomNumberGoesHere")
     syslog.debug(f"Response 2: {memory_response_2.content}")
-    
+
     # Show conversation history
     history = rigel.get_conversation_history(thread_id="randomNumberGoesHere")
     syslog.debug(f"Conversation history: {len(history)} messages")
-    
+
     # Clear memory example
     rigel.clear_memory(thread_id="randomNumberGoesHere")
     syslog.info("Memory functionality test completed")
