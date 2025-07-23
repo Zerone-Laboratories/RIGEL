@@ -31,6 +31,7 @@ from contextlib import asynccontextmanager
 from core.rigel import RigelOllama, RigelGroq
 from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer
+from core.translation_core import Translator
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 # Initialize logging
@@ -40,6 +41,7 @@ syslog = SysLog(name="RigelWebServer", level="INFO", log_file="server.log")
 rigel = None
 synthesizer = None
 recognizer = None
+translator = None
 system_prompt = """
 You are RIGEL, a helpful assistant developed by Zerone Laboratories.
 """
@@ -58,6 +60,7 @@ async def lifespan(app: FastAPI):
     print("  POST /query-with-tools - Inference with MCP tools support")
     print("  POST /synthesize-text - Convert text to speech")
     print("  POST /recognize-audio - Transcribe audio file to text")
+    print("  POST /translate-text - Translate text between languages")
     print("  GET  /license-info   - Display license and copyright information")
     
     yield
@@ -104,6 +107,17 @@ class SynthesizeResponse(BaseModel):
 class RecognizeResponse(BaseModel):
     transcription: str
 
+class TranslateRequest(BaseModel):
+    text: str
+    target_language: Optional[str] = "it"
+    source_language: Optional[str] = "auto"
+
+class TranslateResponse(BaseModel):
+    original_text: str
+    translated_text: str
+    source_language: str
+    target_language: str
+
 class LicenseResponse(BaseModel):
     license_info: str
 
@@ -123,6 +137,7 @@ async def root():
             "/query-with-tools",
             "/synthesize-text",
             "/recognize-audio",
+            "/translate-text",
             "/license-info"
         ]
     }
@@ -288,6 +303,37 @@ async def recognize_audio(
         syslog.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
+@app.post("/translate-text", response_model=TranslateResponse)
+async def translate_text(request: TranslateRequest):
+    """Translate text from one language to another"""
+    global translator
+    
+    try:
+        syslog.info(f"TranslateText called with target_language: {request.target_language}, source_language: {request.source_language}")
+        
+        if translator is None:
+            translator = Translator()
+            
+        translated_text = translator.translate_text(
+            text=request.text,
+            target_language=request.target_language,
+            source_language=request.source_language
+        )
+        
+        syslog.info(f"Translation completed: {request.text[:50]}... -> {translated_text[:50]}...")
+        
+        return TranslateResponse(
+            original_text=request.text,
+            translated_text=translated_text,
+            source_language=request.source_language,
+            target_language=request.target_language
+        )
+        
+    except Exception as e:
+        error_msg = f"Error in text translation: {str(e)}"
+        syslog.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+
 @app.get("/license-info", response_model=LicenseResponse)
 async def get_license_info():
     """Return license information for AGPL compliance"""
@@ -304,7 +350,7 @@ async def get_license_info():
 # Initialize RIGEL backend
 async def initialize_rigel():
     """Initialize RIGEL backend and voice components"""
-    global rigel, synthesizer, recognizer
+    global rigel, synthesizer, recognizer, translator
     
     print("RIGEL Web Service")
     print("Copyright (C) 2025 Zerone Laboratories")
@@ -348,6 +394,14 @@ async def initialize_rigel():
     except Exception as e:
         print(f"Warning: Failed to initialize voice components: {e}")
         print("Voice features may not be available")
+    
+    print("Initializing translation service...")
+    try:
+        translator = Translator()
+        print("Translation service initialized successfully")
+    except Exception as e:
+        print(f"Warning: Failed to initialize translation service: {e}")
+        print("Translation features may not be available")
 
 if __name__ == "__main__":
     print("Starting RIGEL Web Server...")

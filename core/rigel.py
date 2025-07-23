@@ -112,6 +112,8 @@ from langchain.chains import ConversationChain
 import random
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from core.rdb import DBConn
+import requests
+from langchain_openai import ChatOpenAI
 
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
@@ -484,6 +486,62 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         if model:
             self.llm.model = model
         return super().inference(messages)
+    
+class RigelLlamaCpp(Rigel): # RIGEL with llama.cpp OpenAI-compatible server backend
+    def __init__(self, model_name: str = "llama-model", base_url: str = "http://localhost:8080", temp: float = 0.7):
+        super().__init__(model_name=model_name, chatmode="llamacpp")
+        self.base_url = base_url
+        self.llm = ChatOpenAI(
+            model=self.model,
+            base_url=f"{self.base_url}/v1",
+            api_key="not-needed",
+            temperature=temp,
+        )
+        syslog.info(f"Initialized RIGEL with llama.cpp server at {self.base_url}")
+
+    def inference(self, messages: list, model: str = None):
+        if model:
+            self.llm = ChatOpenAI(
+                model=model,
+                base_url=f"{self.base_url}/v1",
+                api_key="not-needed",
+                temperature=self.llm.temperature,
+            )
+        return super().inference(messages)
+    
+    def check_server_status(self):
+        try:
+            response = requests.get(f"{self.base_url}/v1/models", timeout=5)
+            if response.status_code == 200:
+                models_data = response.json()
+                syslog.info(f"llama.cpp server is running at {self.base_url}")
+                return {
+                    "status": "running",
+                    "url": self.base_url,
+                    "models": models_data.get("data", []),
+                    "message": "Server is accessible"
+                }
+            else:
+                syslog.warning(f"llama.cpp server responded with status {response.status_code}")
+                return {
+                    "status": "error",
+                    "url": self.base_url,
+                    "message": f"Server responded with status {response.status_code}"
+                }
+        except requests.exceptions.ConnectionError:
+            syslog.error(f"Cannot connect to llama.cpp server at {self.base_url}")
+            return {
+                "status": "offline",
+                "url": self.base_url,
+                "message": "Cannot connect to server - check if llama.cpp server is running"
+            }
+        except Exception as e:
+            syslog.error(f"Error checking server status: {e}")
+            return {
+                "status": "error",
+                "url": self.base_url,
+                "message": f"Error: {str(e)}"
+            }
 
 
 # Some Demos

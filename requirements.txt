@@ -33,3 +33,4 @@ packaging==24.2
 tqdm==4.67.1
 openai-whisper
 torch==2.5.1
+googletrans
