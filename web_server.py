@@ -27,6 +27,7 @@ import concurrent.futures
 import json
 import uvicorn
 from contextlib import asynccontextmanager
+from fastapi.middleware.cors import CORSMiddleware
 
 from core.rigel import RigelOllama, RigelGroq
 from core.logger import SysLog
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     print("  POST /query-with-memory - Inference with conversation memory")
     print("  POST /query-think    - Advanced thinking capabilities")
     print("  POST /query-with-tools - Inference with MCP tools support")
+    print("  POST /translated-inference-with-memory - Italian conversation with memory")
     print("  POST /synthesize-text - Convert text to speech")
     print("  POST /recognize-audio - Transcribe audio file to text")
     print("  POST /translate-text - Translate text between languages")
@@ -83,11 +85,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Enable CORS for all origins (customize as needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins; restrict in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Request/Response Models
 class QueryRequest(BaseModel):
     query: str
 
 class QueryWithMemoryRequest(BaseModel):
+    query: str
+    id: str
+
+class TranslatedInferenceWithMemoryRequest(BaseModel):
     query: str
     id: str
 
@@ -135,6 +150,7 @@ async def root():
             "/query-with-memory", 
             "/query-think",
             "/query-with-tools",
+            "/translated-inference-with-memory",
             "/synthesize-text",
             "/recognize-audio",
             "/translate-text",
@@ -180,6 +196,47 @@ async def query_with_memory(request: QueryWithMemoryRequest):
         syslog.error(f"Error in query with memory: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing query with memory: {str(e)}")
 
+@app.post("/translated-inference-with-memory", response_model=QueryResponse)
+async def translated_inference_with_memory(request: TranslatedInferenceWithMemoryRequest):
+    """Inference with conversation memory in Italian - translates input to English for processing and response back to Italian, using RAG for context"""
+    global system_prompt, rigel, translator
+    system_prompt="You are an AI assistant designed to give information about restaurants. Your name is SARA"
+
+    if rigel is None:
+        raise HTTPException(status_code=500, detail="RIGEL backend not initialized")
+
+    if translator is None:
+        translator = Translator()
+
+    try:
+        syslog.info(f"TranslatedInferenceWithMemory called with query: {request.query[:100]}..., id: {request.id}")
+        english_query = await translator.translate_text(
+            text=request.query,
+            target_language="en",
+            source_language="it"
+        )
+
+        messages = [
+            ("system", f"{system_prompt}"),
+        ]
+        messages.append(("human", f"{english_query}"))
+
+        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=True)
+        italian_response = await translator.translate_text(
+            text=response.content,
+            target_language="it",
+            source_language="en"
+        )
+
+        syslog.info(f"Translated response (EN->IT): {response.content[:50]}... -> {italian_response[:50]}...")
+
+        return QueryResponse(response=italian_response)
+
+    except Exception as e:
+        error_msg = f"Error in translated inference with memory: {str(e)}"
+        syslog.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+    
 @app.post("/query-think", response_model=QueryResponse)
 async def query_think(request: QueryRequest):
     """Advanced thinking capabilities"""
@@ -314,7 +371,7 @@ async def translate_text(request: TranslateRequest):
         if translator is None:
             translator = Translator()
             
-        translated_text = translator.translate_text(
+        translated_text = await translator.translate_text(
             text=request.text,
             target_language=request.target_language,
             source_language=request.source_language
@@ -386,6 +443,8 @@ async def initialize_rigel():
     
     rigel = RigelGroq(model_name="llama-3.3-70b-versatile", mcp_endpoint=default_mcp)
     print("RIGEL initialized with GROQ backend")
+    print("Initializing VectorStore...")
+    rigel.readAndInitializeDatabase()
     print("Initializing voice synthesis and recognition...")
     try:
         synthesizer = Synthesizer(mode="chunk")
@@ -405,6 +464,8 @@ async def initialize_rigel():
 
 if __name__ == "__main__":
     print("Starting RIGEL Web Server...")
+    
+    
     uvicorn.run(
         "web_server:app",
         host="0.0.0.0",
