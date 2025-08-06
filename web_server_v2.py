@@ -799,7 +799,7 @@ if __name__ == "__main__":
     # Create and run server instance
     server = create_rigel_server(
         title="RIGEL Web Service V2",
-        version="5.0.0",
+        version="4.0.X",
         port=8000
     )
     
