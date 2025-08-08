@@ -31,6 +31,7 @@ typing_extensions==4.14.0
 SQLAlchemy==2.0.41
 packaging==24.2
 tqdm==4.67.1
-openai-whisper
-torch==2.5.1
+# openai-whisper
+# torch==2.5.1
 googletrans
+motor>=3.3.2
