@@ -30,7 +30,8 @@ RUN apk add --no-cache \
 ENV PYTHON_VERSION=3.13.0
 
 # Download and build Python 3.13 from source
-RUN cd /usr/src && \
+RUN mkdir -p /src && \
+    cd /src && \
     wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
     tar xzf Python-${PYTHON_VERSION}.tgz && \
     cd Python-${PYTHON_VERSION} && \
@@ -40,7 +41,7 @@ RUN cd /usr/src && \
     make altinstall && \
     ln -s /usr/local/bin/python3.13 /usr/local/bin/python && \
     ln -s /usr/local/bin/pip3.13 /usr/local/bin/pip && \
-    cd / && rm -rf /usr/src/Python-${PYTHON_VERSION}*
+    cd / && rm -rf /src/Python-${PYTHON_VERSION}*
 
 # Set working directory
 WORKDIR /app
