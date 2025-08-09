@@ -1,29 +1,30 @@
 # Use minimal base image
-FROM debian:bullseye-slim
+FROM alpine:3.19
 
 LABEL maintainer="Zerone <omethabeyrathne3@gmail.com>"
 LABEL description="Dockerized RIGEL_SERVICE with Python 3.13 built from source"
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
+RUN apk add --no-cache \
+    build-base \
     curl \
     wget \
     cmake \
-    libssl-dev \
-    zlib1g-dev \
-    libbz2-dev \
-    libreadline-dev \
-    libsqlite3-dev \
+    openssl-dev \
+    zlib-dev \
+    bzip2-dev \
+    readline-dev \
+    sqlite-dev \
     libffi-dev \
-    xz-utils \
+    xz \
     cairo \
-    libgirepository-2.0-dev \
+    gobject-introspection-dev \
     tk-dev \
     libxml2-dev \
-    libxmlsec1-dev \
+    xmlsec-dev \
     ca-certificates \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    linux-headers \
+    git
 
 # Set Python version
 ENV PYTHON_VERSION=3.13.0
@@ -33,8 +34,9 @@ RUN cd /usr/src && \
     wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
     tar xzf Python-${PYTHON_VERSION}.tgz && \
     cd Python-${PYTHON_VERSION} && \
-    ./configure --enable-optimizations && \
-    make -j"$(nproc)" && \
+    # Alpine specific flags to ensure proper compilation
+    ./configure --enable-optimizations --with-ensurepip=install && \
+    make -j$(nproc) && \
     make altinstall && \
     ln -s /usr/local/bin/python3.13 /usr/local/bin/python && \
     ln -s /usr/local/bin/pip3.13 /usr/local/bin/pip && \
