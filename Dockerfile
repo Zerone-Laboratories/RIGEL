@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     wget \
+    cmake \
     libssl-dev \
     zlib1g-dev \
     libbz2-dev \
