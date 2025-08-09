@@ -74,10 +74,9 @@ RUN mkdir -p /src && \
     wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
     tar xzf Python-${PYTHON_VERSION}.tgz && \
     cd Python-${PYTHON_VERSION} && \
-    # Configure with proper flags for Alpine
+    # Configure without optimizations to avoid test failures on Alpine
     ./configure \
         --prefix=/usr/local \
-        --enable-optimizations \
         --enable-shared \
         --with-system-ffi \
         --with-computed-gotos \
@@ -88,6 +87,9 @@ RUN mkdir -p /src && \
     # Clean up source files to reduce image size
     cd / && \
     rm -rf /src/Python-${PYTHON_VERSION}* && \
+    # Fix shared library path for Alpine
+    echo "/usr/local/lib" >> /etc/ld-musl-x86_64.path && \
+    ldconfig /usr/local/lib || true && \
     # Create symlinks for python and pip
     ln -sf /usr/local/bin/python3.13 /usr/local/bin/python3 && \
     ln -sf /usr/local/bin/python3.13 /usr/local/bin/python && \
