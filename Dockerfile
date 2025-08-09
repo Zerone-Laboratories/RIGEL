@@ -1,5 +1,5 @@
 # Use minimal base image
-FROM debian:bullseye-slim
+FROM debian:bullssudo docker build -t rigel_service .ceye-slim
 
 LABEL maintainer="Zerone <omethabeyrathne3@gmail.com>"
 LABEL description="Dockerized RIGEL_SERVICE with Python 3.13 built from source"
@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-dev \
     libffi-dev \
     xz-utils \
+    cairo \
+    libgirepository-2.0-dev \
     tk-dev \
     libxml2-dev \
     libxmlsec1-dev \
