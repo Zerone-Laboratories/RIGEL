@@ -74,10 +74,9 @@ RUN mkdir -p /src && \
     wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
     tar xzf Python-${PYTHON_VERSION}.tgz && \
     cd Python-${PYTHON_VERSION} && \
-    # Configure without optimizations to avoid test failures on Alpine
+    # Configure without optimizations and without shared libraries to avoid issues
     ./configure \
         --prefix=/usr/local \
-        --enable-shared \
         --with-system-ffi \
         --with-computed-gotos \
         --enable-loadable-sqlite-extensions \
@@ -87,16 +86,14 @@ RUN mkdir -p /src && \
     # Clean up source files to reduce image size
     cd / && \
     rm -rf /src/Python-${PYTHON_VERSION}* && \
-    # Fix shared library path for Alpine
-    echo "/usr/local/lib" >> /etc/ld-musl-x86_64.path && \
-    ldconfig /usr/local/lib || true && \
-    # Create symlinks for python and pip
+    # Create symlinks for python
     ln -sf /usr/local/bin/python3.13 /usr/local/bin/python3 && \
     ln -sf /usr/local/bin/python3.13 /usr/local/bin/python && \
-    # Install pip separately (more reliable on Alpine)
-    wget https://bootstrap.pypa.io/get-pip.py && \
+    # Install pip using curl instead of wget to avoid library issues
+    curl -L https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
     python3.13 get-pip.py && \
     rm get-pip.py && \
+    # Create pip symlinks
     ln -sf /usr/local/bin/pip3.13 /usr/local/bin/pip3 && \
     ln -sf /usr/local/bin/pip3.13 /usr/local/bin/pip && \
     # Update pip, setuptools, and wheel
