@@ -53,7 +53,7 @@ RUN apk add --no-cache \
     gobject-introspection-dev \
     xmlsec-dev \
     ca-certificates \
-    git \
+    git
     # Clean up package manager cache is automatic with --no-cache
 
 # Set Python version
