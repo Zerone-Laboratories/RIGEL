@@ -1,5 +1,5 @@
 # Use minimal base image
-FROM debian:bullssudo docker build -t rigel_service .ceye-slim
+FROM debian:bullseye-slim
 
 LABEL maintainer="Zerone <omethabeyrathne3@gmail.com>"
 LABEL description="Dockerized RIGEL_SERVICE with Python 3.13 built from source"
