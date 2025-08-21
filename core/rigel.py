@@ -475,10 +475,22 @@ class RigelGroq(Rigel): # RIGEL with groq backend
     def __init__(self, model_name: str = "llama3-70b-8192", temp: float = 0.7,  mcp_endpoint = default_mcp):
         super().__init__(model_name=model_name, chatmode="groq", mcp_endpoint=mcp_endpoint)
         if "GROQ_API_KEY" not in os.environ:
-            os.environ["GROQ_API_KEY"] = getpass.getpass("Enter your Groq API key: ")
-        self.llm = ChatGroq(model=self.model,
-                            temperature=temp,
-                            )
+            try:
+                os.environ["GROQ_API_KEY"] = getpass.getpass("Enter your Groq API key: ")
+            except Exception as e:
+                syslog.error(f"Failed to get Groq API key: {e}")
+                syslog.error("When running in Docker, make sure to set GROQ_API_KEY environment variable without quotes")
+                raise RuntimeError("GROQ_API_KEY environment variable is not set and unable to prompt for input")
+        
+        try:
+            self.llm = ChatGroq(model=self.model,
+                                temperature=temp,
+                                )
+            syslog.info(f"Successfully initialized Groq LLM with model {self.model}")
+        except Exception as e:
+            syslog.error(f"Failed to initialize Groq LLM: {e}")
+            syslog.error("Check that your GROQ_API_KEY is valid and properly set")
+            raise
 
     def inference(self, messages: list, model: str = None):
         if model:

@@ -1123,16 +1123,18 @@ RIGEL's web server provides a modern REST API interface with automatic OpenAPI d
 
 The web server provides the same functionality as the D-Bus server through HTTP endpoints:
 
-| Endpoint             | Method | Description                                 | Request Body                                 |
-| -------------------- | ------ | ------------------------------------------- | -------------------------------------------- |
-| `/`                  | GET    | Service information and available endpoints | None                                         |
-| `/query`             | POST   | Basic inference                             | `{"query": "string"}`                        |
-| `/query-with-memory` | POST   | Inference with conversation memory          | `{"query": "string", "id": "string"}`        |
-| `/query-think`       | POST   | Advanced thinking capabilities              | `{"query": "string"}`                        |
-| `/query-with-tools`  | POST   | Inference with MCP tools support            | `{"query": "string"}`                        |
-| `/synthesize-text`   | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear"}` |
-| `/recognize-audio`   | POST   | Transcribe audio file to text               | Multipart form with `audio_file` and `model` |
-| `/license-info`      | GET    | License and copyright information           | None                                         |
+| Endpoint                       | Method | Description                                 | Request Body                                 |
+| ------------------------------ | ------ | ------------------------------------------- | -------------------------------------------- |
+| `/`                            | GET    | Service information and available endpoints | None                                         |
+| `/query`                       | POST   | Basic inference                             | `{"query": "string"}`                        |
+| `/query-with-memory`           | POST   | Inference with conversation memory          | `{"query": "string", "id": "string"}`        |
+| `/query-think`                 | POST   | Advanced thinking capabilities              | `{"query": "string"}`                        |
+| `/query-with-tools`            | POST   | Inference with MCP tools support            | `{"query": "string"}`                        |
+| `/synthesize-text`             | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear"}` |
+| `/recognize-audio`             | POST   | Transcribe audio file to text               | Multipart form with `audio_file` and `model` |
+| `/license-info`                | GET    | License and copyright information           | None                                         |
+| `/admin/switch-inference-engine` | POST | Switch between GROQ and OLLAMA backends     | `{"engine": "groq" or "ollama"}`             |
+| `/admin/current-inference-engine` | GET | Get current inference engine                | None                                         |
 
 ### Running the Web Server
 
@@ -1155,6 +1157,31 @@ The server will start on `http://localhost:8000` with the following URLs availab
 - **Main API**: http://localhost:8000
 - **Interactive Documentation**: http://localhost:8000/docs
 - **OpenAPI Schema**: http://localhost:8000/openapi.json
+
+## Docker Deployment
+
+### Using Docker Compose
+
+```bash
+# Start with default GROQ backend
+docker-compose up
+
+# Start with OLLAMA backend
+INFERENCE_ENGINE=ollama docker-compose up
+
+# Start with custom environment
+INFERENCE_ENGINE=groq GROQ_API_KEY=your_key_here docker-compose up
+```
+
+> **Note**: When using OLLAMA backend with Docker, the Ollama server will automatically start inside the container. You don't need to start Ollama separately.
+
+### Docker Features
+
+- **Automatic Ollama Startup**: When `INFERENCE_ENGINE=ollama` is set, the Ollama server will be automatically started inside the container
+- **Persistent Models**: Ollama models are stored in a Docker volume to persist between container restarts
+- **Port Mapping**: 
+  - Port 8000: RIGEL Web API
+  - Port 11434: Ollama API (when using Ollama backend)
 
 ### Web API Usage Examples
 
@@ -1362,6 +1389,8 @@ The web server provides the same powerful AI capabilities as the D-Bus interface
 ## Environment Variables
 
 - `GROQ_API_KEY`: Required for Groq backend usage
+- `INFERENCE_ENGINE`: Set to "groq" or "ollama" to specify the default inference engine
+- `RIGEL_ADMIN_KEY`: Admin key for accessing administrative endpoints
 
 ## Logging
 

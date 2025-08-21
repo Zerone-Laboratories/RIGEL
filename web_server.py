@@ -313,6 +313,7 @@ async def check_quotas_and_limits(tenant_info: Dict[str, Any], endpoint: str) ->
 rigel = None
 synthesizer = None
 recognizer = None
+inference_engine = os.getenv("INFERENCE_ENGINE", "groq").lower()  # Default to groq, can be overridden
 system_prompt = """
 You are RIGEL, a helpful assistant developed by Zerone Laboratories.
 """
@@ -416,15 +417,25 @@ class UsageStatsResponse(BaseModel):
     daily_quota: int
     total_requests: int
 
+class InferenceEngineRequest(BaseModel):
+    engine: str  # "groq" or "ollama"
+
+class InferenceEngineResponse(BaseModel):
+    engine: str
+    status: str
+
 # Routes
 @app.get("/", response_model=dict)
 async def root():
     """Root endpoint with service information - no auth required"""
+    global inference_engine
+    
     return {
         "service": "RIGEL Web Service",
         "version": "4.0.X",
         "copyright": "Copyright (C) 2025 Zerone Laboratories",
         "license": "GNU Affero General Public License v3.0",
+        "current_inference_engine": inference_engine,
         "authentication": "API key required for all endpoints except root and license-info",
         "endpoints": [
             "/query",
@@ -435,7 +446,10 @@ async def root():
             "/recognize-audio",
             "/license-info",
             "/admin/create-key",
-            "/admin/usage/{tenant_id}"
+            "/admin/usage/{tenant_id}",
+            "/admin/list-tenants",
+            "/admin/switch-inference-engine",
+            "/admin/current-inference-engine"
         ]
     }
 
@@ -799,10 +813,52 @@ async def list_tenants(_: bool = Depends(require_admin_key)):
         syslog.error(f"Error listing tenants: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error listing tenants: {str(e)}")
 
+@app.post("/admin/switch-inference-engine", response_model=InferenceEngineResponse)
+async def switch_inference_engine(
+    request: InferenceEngineRequest,
+    _: bool = Depends(require_admin_key)
+):
+    """Switch the inference engine between GROQ and OLLAMA - admin only"""
+    global inference_engine, rigel
+    
+    try:
+        engine = request.engine.lower()
+        if engine not in ["groq", "ollama"]:
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid engine type. Must be 'groq' or 'ollama'."
+            )
+        
+        # Only reinitialize if the engine is changing
+        if engine != inference_engine:
+            inference_engine = engine
+            await initialize_rigel()
+            syslog.info(f"Switched inference engine to {inference_engine}")
+        
+        return InferenceEngineResponse(
+            engine=inference_engine,
+            status="Engine switched successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        syslog.error(f"Error switching inference engine: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error switching inference engine: {str(e)}")
+
+@app.get("/admin/current-inference-engine", response_model=InferenceEngineResponse)
+async def get_inference_engine(_: bool = Depends(require_admin_key)):
+    """Get the current inference engine - admin only"""
+    global inference_engine
+    
+    return InferenceEngineResponse(
+        engine=inference_engine,
+        status="Current engine"
+    )
+
 # Initialize RIGEL backend
 async def initialize_rigel():
     """Initialize RIGEL backend and voice components"""
-    global rigel, synthesizer, recognizer
+    global rigel, synthesizer, recognizer, inference_engine
     
     print("RIGEL Web Service")
     print("Copyright (C) 2025 Zerone Laboratories")
@@ -836,8 +892,65 @@ async def initialize_rigel():
         },
     )
     
-    rigel = RigelGroq(model_name="llama-3.3-70b-versatile", mcp_endpoint=default_mcp)
-    print("RIGEL initialized with GROQ backend")
+    if inference_engine == "ollama":
+        # Check if Ollama is running and start it if not
+        try:
+            import requests
+            import subprocess
+            import time
+            
+            # Try to connect to Ollama API
+            try:
+                response = requests.get("http://localhost:11434/api/version", timeout=2)
+                print(f"Ollama is already running, version: {response.json().get('version', 'unknown')}")
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                print("Ollama is not running. Attempting to start Ollama server...")
+                try:
+                    # Start Ollama in the background
+                    subprocess.Popen(["ollama", "serve"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    
+                    # Wait for Ollama to start (with timeout)
+                    start_time = time.time()
+                    while time.time() - start_time < 30:  # 30 second timeout
+                        try:
+                            response = requests.get("http://localhost:11434/api/version", timeout=2)
+                            if response.status_code == 200:
+                                print(f"Ollama started successfully, version: {response.json().get('version', 'unknown')}")
+                                break
+                        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                            print("Waiting for Ollama to start...")
+                            time.sleep(2)
+                    else:
+                        print("Warning: Timed out waiting for Ollama to start")
+                except Exception as e:
+                    print(f"Error starting Ollama: {e}")
+                    print("Will attempt to continue, but RIGEL may not function correctly with Ollama backend")
+                
+            # Check if the required model is available
+            model_name = "llama3.2"
+            try:
+                models_response = requests.get("http://localhost:11434/api/tags", timeout=5)
+                models = models_response.json().get('models', [])
+                model_exists = any(model['name'] == model_name for model in models)
+                
+                if not model_exists:
+                    print(f"Model {model_name} not found. Attempting to pull it (this may take some time)...")
+                    # This is non-blocking to avoid hanging the server initialization
+                    subprocess.Popen(["ollama", "pull", model_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    print(f"Started downloading {model_name} in the background")
+                else:
+                    print(f"Model {model_name} is already available")
+            except Exception as e:
+                print(f"Error checking/pulling Ollama model: {e}")
+        except Exception as e:
+            print(f"Error during Ollama setup: {e}")
+        
+        rigel = RigelOllama(model_name="llama3.2", mcp_endpoint=default_mcp)
+        print("RIGEL initialized with OLLAMA backend")
+    else:  # Default to GROQ
+        rigel = RigelGroq(model_name="llama-3.3-70b-versatile", mcp_endpoint=default_mcp)
+        print("RIGEL initialized with GROQ backend")
+    
     print("Initializing voice synthesis and recognition...")
     try:
         synthesizer = Synthesizer(mode="chunk")
