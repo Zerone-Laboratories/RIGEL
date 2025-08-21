@@ -81,6 +81,7 @@ RIGEL bridges the gap between powerful AI models and practical system integratio
 > RIGEL Engine is still in developer-beta stage. Bugs may present. The code will be well structured in the public release and more features will be added!.
 
 ## Example Tool built using RIGEL Engine
+
 ### Rigel-Runtime Shell
 
 <div align="center">
@@ -91,14 +92,15 @@ Repository for this tool: [https://github.com/Zerone-Laboratories/RIGEL-Runtime]
 
 ## Overview
 
-RIGEL is a powerful **open-source multi-agentic AI engine** and **virtual assistant framework** that provides a unified interface for multiple language model backends. Built with extensibility in mind, it supports both **local AI inference via Ollama** and **cloud-based inference through Groq**. 
+RIGEL is a powerful **open-source multi-agentic AI engine** and **virtual assistant framework** that provides a unified interface for multiple language model backends. Built with extensibility in mind, it supports both **local AI inference via Ollama** and **cloud-based inference through Groq**.
 
 **Perfect for developers building AI applications, chatbots, virtual assistants, and agentic AI systems.**
 
 Key capabilities:
+
 - **Multi-LLM Support**: Ollama (local), Groq (cloud), LLAMA.cpp, Transformers
 - **Agentic AI**: Advanced reasoning, thinking, and decision-making
-- **System Integration**: D-Bus server for OS-level AI assistance  
+- **System Integration**: D-Bus server for OS-level AI assistance
 - **MCP Tools**: File management, system commands, real-time information with configurable server support
 - **Voice Interface**: Local speech-to-text and text-to-speech capabilities
 - **Memory Management**: Persistent conversation threads
@@ -106,24 +108,22 @@ Key capabilities:
 
 Aims to act as a central AI server for multiple agentic-based clients and AI-powered applications.
 
-
 ## Project Status
 
-| Feature | Status |
-|---------|--------|
-| Inference with Ollama | ✓ |
-| Inference with Groq | ✓ |
-| Inference with LLAMA.cpp (CUDA/Vulkan Compute) | - |
-| Inference with transformers | - |
-| Thinking | ✓ |
-| MCP | ✓ |
-| Dbus Server | ✓ |
-| RAG | Partial |
-| Memory | ✓ |
-| Local Voice Recognition | ✓ |
-| Local Voice Synthesis | ✓ |
-| Multiple Request Handling | Un-Tested |
-
+| Feature                                        | Status    |
+| ---------------------------------------------- | --------- |
+| Inference with Ollama                          | ✓         |
+| Inference with Groq                            | ✓         |
+| Inference with LLAMA.cpp (CUDA/Vulkan Compute) | -         |
+| Inference with transformers                    | -         |
+| Thinking                                       | ✓         |
+| MCP                                            | ✓         |
+| Dbus Server                                    | ✓         |
+| RAG                                            | Partial   |
+| Memory                                         | ✓         |
+| Local Voice Recognition                        | ✓         |
+| Local Voice Synthesis                          | ✓         |
+| Multiple Request Handling                      | Un-Tested |
 
 ## Features
 
@@ -141,11 +141,13 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 ## Supported Backends
 
 ### Ollama Backend (`RigelOllama`)
+
 - **Default Model**: `llama3.2`
 - **Type**: Local inference
 - **Benefits**: Privacy, no API costs, offline capability
 
 ### Groq Backend (`RigelGroq`)
+
 - **Default Model**: `llama3-70b-8192`
 - **Type**: Cloud-based inference
 - **Benefits**: High performance, larger models, no local compute requirements
@@ -154,12 +156,14 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 ## Installation
 
 1. Clone the repository:
+
 ```bash
 git clone <repository-url>
 cd RIGEL
 ```
 
 2. Create and activate a virtual environment:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # On Linux/macOS
@@ -168,11 +172,13 @@ source .venv/bin/activate  # On Linux/macOS
 ```
 
 3. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 4. For voice features, install system dependencies:
+
 ```bash
 # Install Piper TTS (for voice synthesis)
 # Download from: https://github.com/rhasspy/piper/releases
@@ -181,11 +187,12 @@ pip install -r requirements.txt
 # Install PulseAudio for audio playback (Ubuntu/Debian)
 sudo apt-get install pulseaudio pulseaudio-utils
 
-# Install PulseAudio for audio playback (Fedora/RHEL) 
+# Install PulseAudio for audio playback (Fedora/RHEL)
 sudo dnf install pulseaudio pulseaudio-utils
 ```
 
 5. For Ollama backend, ensure Ollama is installed and running:
+
 ```bash
 # Install Ollama (if not already installed)
 curl -fsSL https://ollama.ai/install.sh | sh
@@ -195,6 +202,7 @@ ollama pull llama3.2
 ```
 
 6. For D-Bus functionality (Linux only), ensure system dependencies:
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-3.0
@@ -222,6 +230,7 @@ This will present you with options to run either the D-Bus server or Web server,
 RIGEL's D-Bus server provides system-wide AI assistance with advanced tool capabilities, perfect for Linux desktop integration.
 
 **Best for:**
+
 - Linux desktop environments
 - System-wide AI assistance
 - Inter-process communication
@@ -243,6 +252,7 @@ python dbus_server.py
 RIGEL's web server provides a REST API interface accessible from any HTTP client, with automatic OpenAPI documentation.
 
 **Best for:**
+
 - Cross-platform compatibility
 - Remote access
 - Web applications
@@ -261,50 +271,64 @@ python web_server.py
 ```
 
 The web server will be available at:
+
 - **Main API**: http://localhost:8000
 - **Interactive Documentation**: http://localhost:8000/docs
 - **OpenAPI Schema**: http://localhost:8000/openapi.json
 
 #### Web Server Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Service information |
-| `/query` | POST | Basic inference |
-| `/query-with-memory` | POST | Inference with conversation memory |
-| `/query-think` | POST | Advanced thinking capabilities |
-| `/query-with-tools` | POST | Inference with MCP tools support |
-| `/synthesize-text` | POST | Convert text to speech |
-| `/recognize-audio` | POST | Transcribe audio file to text |
-| `/license-info` | GET | License and copyright information |
+| Endpoint                   | Method | Auth Required | Description                        |
+| -------------------------- | ------ | ------------- | ---------------------------------- |
+| `/`                        | GET    | No            | Service information                |
+| `/query`                   | POST   | Yes           | Basic inference                    |
+| `/query-with-memory`       | POST   | Yes           | Inference with conversation memory |
+| `/query-think`             | POST   | Yes           | Advanced thinking capabilities     |
+| `/query-with-tools`        | POST   | Yes           | Inference with MCP tools support   |
+| `/synthesize-text`         | POST   | Yes           | Convert text to speech             |
+| `/recognize-audio`         | POST   | Yes           | Transcribe audio file to text      |
+| `/license-info`            | GET    | No            | License and copyright information  |
+| `/admin/create-key`        | POST   | Admin         | Create new API key                 |
+| `/admin/usage/{tenant_id}` | GET    | Admin         | Get usage statistics               |
+| `/admin/list-tenants`      | GET    | Admin         | List all tenants                   |
 
 #### Web API Usage Examples
+
+**Note**: All endpoints except `/` and `/license-info` require authentication via `X-API-Key` header.
 
 ```bash
 # Basic query
 curl -X POST "http://localhost:8000/query" \
      -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
      -d '{"query": "Hello RIGEL!"}'
 
 # Query with memory
 curl -X POST "http://localhost:8000/query-with-memory" \
      -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
      -d '{"query": "My name is Alice", "id": "user123"}'
 
 # Query with tools
 curl -X POST "http://localhost:8000/query-with-tools" \
      -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
      -d '{"query": "What time is it and list files in current directory?"}'
 
 # Text synthesis
 curl -X POST "http://localhost:8000/synthesize-text" \
      -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
      -d '{"text": "Hello, this is RIGEL speaking!", "mode": "chunk"}'
 
 # Audio recognition
 curl -X POST "http://localhost:8000/recognize-audio" \
+     -H "X-API-Key: rigel_your_api_key_here" \
      -F "audio_file=@audio.wav" \
      -F "model=tiny"
+
+# License information (no auth required)
+curl http://localhost:8000/license-info
 ```
 
 Both servers support the same core functionality but with different interfaces. Choose the one that best fits your use case.
@@ -466,6 +490,7 @@ sudo dnf install pulseaudio pulseaudio-utils      # Fedora/RHEL
 #### Python Dependencies
 
 Voice features require additional dependencies included in `requirements.txt`:
+
 - `openai-whisper`: For speech recognition
 - `torch`, `torchaudio`, `torchvision`: PyTorch dependencies for Whisper
 
@@ -477,14 +502,16 @@ Voice features require additional dependencies included in `requirements.txt`:
 ### D-Bus Voice Endpoints
 
 #### `SynthesizeText(text: str, mode: str) -> str`
+
 - **Description**: Converts text to speech with specified synthesis mode
-- **Parameters**: 
+- **Parameters**:
   - `text` - The text to synthesize
   - `mode` - Synthesis mode: "chunk" or "linear"
 - **Returns**: Status message indicating synthesis started
 - **Use Case**: Voice output for AI responses, notifications, accessibility
 
 #### `RecognizeAudio(audio_file_path: str, model: str) -> str`
+
 - **Description**: Transcribes audio file to text using Whisper
 - **Parameters**:
   - `audio_file_path` - Path to audio file (WAV, MP3, etc.)
@@ -604,9 +631,11 @@ RIGEL_SERVICE/
 ### Core Classes
 
 #### `Rigel` (Base Class)
+
 The superclass for all RIGEL implementations.
 
 **Methods:**
+
 - `inference(messages: list, model: str = None)` - Perform inference with given messages
 - `inference_with_memory(messages: list, model: str = None, thread_id: str = "default")` - Perform inference with conversation memory
 - `get_conversation_history(thread_id: str = "default")` - Retrieve conversation history for a thread
@@ -615,40 +644,52 @@ The superclass for all RIGEL implementations.
 - `decision(decision_message, model: str = None)` - [TODO] Decision-making capabilities
 
 #### `RigelOllama`
+
 RIGEL implementation using Ollama backend.
 
 **Constructor:**
+
 - `RigelOllama(model_name: str = "llama3.2")`
 
 #### `RigelGroq`
+
 RIGEL implementation using Groq backend.
 
 **Constructor:**
+
 - `RigelGroq(model_name: str = "llama3-70b-8192", temp: float = 0.7)`
 
 #### `Synthesizer`
+
 Voice synthesis class for text-to-speech conversion.
 
 **Constructor:**
+
 - `Synthesizer(mode: str = "chunk")`
 
 **Methods:**
+
 - `synthesize(text: str)` - Convert text to speech and play audio
 
 **Modes:**
+
 - `chunk` - Process text in sentence chunks for streaming playback
 - `linear` - Process entire text as single unit
 
 #### `Recognizer`
+
 Voice recognition class for speech-to-text conversion.
 
 **Constructor:**
+
 - `Recognizer(model: str = "tiny")`
 
 **Methods:**
+
 - `transcribe(file_path: str) -> str` - Transcribe audio file to text
 
 **Models:**
+
 - `tiny`, `base`, `small`, `medium`, `large` - Whisper model sizes
 
 ## Message Format
@@ -693,16 +734,19 @@ RIGEL includes comprehensive MCP support that significantly extends the AI's cap
 ### Key MCP Capabilities
 
 #### 🛠️ System Operations
+
 - **Real-time Information**: Get current time, system information, and user environment details
 - **Command Execution**: Safely execute shell commands with output capture
 - **Process Management**: Monitor and interact with system processes
 
 #### 📁 File Management
+
 - **File I/O**: Read from and write to any accessible file on the system
 - **Directory Navigation**: List and explore directory structures
 - **Content Analysis**: AI can analyze file contents and provide insights
 
 #### 🔧 Advanced Features
+
 - **Secure Execution**: All operations run within controlled boundaries
 - **Error Handling**: Robust error reporting and recovery mechanisms
 - **Real-time Integration**: Seamless integration with AI reasoning
@@ -757,6 +801,7 @@ default_mcp = MultiServerMCPClient(
 RIGEL supports two MCP transport methods:
 
 - **SSE (Server-Sent Events)**: For HTTP-based MCP servers
+
   ```python
   "transport": "sse",
   "url": "http://localhost:8001/sse"
@@ -782,6 +827,7 @@ The built-in MCP server runs on **port 8001** by default using Server-Sent Event
 ```
 
 To change the port, modify both:
+
 1. **`core/mcp/rigel_tools_server.py`**: Update the `port=8001` parameter in `FastMCP()`
 2. **`server.py`**: Update the URL in the MCP client configuration
 
@@ -799,16 +845,19 @@ If no MCP servers are configured (`default_mcp = None`), RIGEL will display a wa
 **Common Issues:**
 
 1. **"MCP server connection failed"**
+
    - Ensure the MCP server is running before starting RIGEL
    - Check that port 8001 is available and not blocked by firewall
    - Verify the URL in the configuration matches the server
 
 2. **"QueryWithTools times out"**
+
    - Commands have a 30-second timeout for safety
    - Check if the requested operation is resource-intensive
    - Verify system commands are valid and accessible
 
 3. **"Permission denied" errors**
+
    - MCP tools respect system file permissions
    - Ensure RIGEL has appropriate access to requested files/directories
    - Check user permissions for system commands
@@ -823,6 +872,7 @@ If no MCP servers are configured (`default_mcp = None`), RIGEL will display a wa
 The built-in RIGEL MCP server (`core/mcp/rigel_tools_server.py`) provides the following tools:
 
 #### System Operations
+
 - **`current_time()`** - Get current system date and time in YYYY-MM-DD HH:MM:SS format
 - **`get_system_info()`** - Retrieve comprehensive system information including:
   - Current working directory
@@ -836,6 +886,7 @@ The built-in RIGEL MCP server (`core/mcp/rigel_tools_server.py`) provides the fo
   - Captures exit codes for error handling
 
 #### File Operations
+
 - **`read_file(file_path)`** - Read contents of any accessible file
   - Supports UTF-8 encoding
   - Returns full file contents or error message
@@ -850,6 +901,7 @@ The built-in RIGEL MCP server (`core/mcp/rigel_tools_server.py`) provides the fo
   - Sorted alphabetically for consistent output
 
 #### Tool Safety Features
+
 - **Timeout Protection**: Commands have built-in 30-second timeouts
 - **Error Handling**: Comprehensive error messages for debugging
 - **Encoding Support**: UTF-8 support for international characters
@@ -917,18 +969,20 @@ When you first run RIGEL without MCP server configuration, you'll see this messa
 ```
 Open server.py and add your custom mcp servers here before initializing
 There is a basic mcp server built in inside core/mcp/rigel_tools_server.py
-You can start it by typing 
+You can start it by typing
 python core/mcp/rigel_tools_server.py
 ```
 
 To set up MCP functionality:
 
 1. **For basic functionality**: Start the built-in MCP server in a separate terminal:
+
    ```bash
    python core/mcp/rigel_tools_server.py
    ```
 
 2. **For advanced functionality**: Edit `server.py` to configure multiple MCP servers:
+
    - Uncomment the `default_mcp = MultiServerMCPClient(...)` section
    - Modify server configurations to match your setup
    - Add additional MCP servers as needed
@@ -957,18 +1011,20 @@ RIGEL's D-Bus server provides a powerful system-wide interface for AI assistance
 #### Core Inference Endpoints
 
 - **`Query(query: str) -> str`**
+
   - **Description**: Performs basic inference with the configured backend
   - **Parameters**: `query` - The user's message/question
   - **Returns**: AI response as string
   - **Use Case**: Simple AI interactions without memory or tools
-  - **Example**: 
+  - **Example**:
     ```python
     response = service.Query("What is artificial intelligence?")
     ```
 
 - **`QueryWithMemory(query: str, thread_id: str) -> str`**
+
   - **Description**: Performs inference with persistent conversation memory
-  - **Parameters**: 
+  - **Parameters**:
     - `query` - The user's message/question
     - `thread_id` - Unique identifier for conversation thread
   - **Returns**: AI response as string with full context awareness
@@ -980,6 +1036,7 @@ RIGEL's D-Bus server provides a powerful system-wide interface for AI assistance
     ```
 
 - **`QueryThink(query: str) -> str`**
+
   - **Description**: Performs advanced thinking/reasoning operations
   - **Parameters**: `query` - The problem or scenario requiring deep thought
   - **Returns**: AI reasoning response with detailed analysis
@@ -1025,6 +1082,7 @@ python dbus_server.py
 ```
 
 The server will prompt you to choose between:
+
 1. **Groq** (Cloud-based, high performance)
 2. **Ollama** (Local, privacy-focused)
 
@@ -1065,16 +1123,16 @@ RIGEL's web server provides a modern REST API interface with automatic OpenAPI d
 
 The web server provides the same functionality as the D-Bus server through HTTP endpoints:
 
-| Endpoint | Method | Description | Request Body |
-|----------|--------|-------------|--------------|
-| `/` | GET | Service information and available endpoints | None |
-| `/query` | POST | Basic inference | `{"query": "string"}` |
-| `/query-with-memory` | POST | Inference with conversation memory | `{"query": "string", "id": "string"}` |
-| `/query-think` | POST | Advanced thinking capabilities | `{"query": "string"}` |
-| `/query-with-tools` | POST | Inference with MCP tools support | `{"query": "string"}` |
-| `/synthesize-text` | POST | Convert text to speech | `{"text": "string", "mode": "chunk/linear"}` |
-| `/recognize-audio` | POST | Transcribe audio file to text | Multipart form with `audio_file` and `model` |
-| `/license-info` | GET | License and copyright information | None |
+| Endpoint             | Method | Description                                 | Request Body                                 |
+| -------------------- | ------ | ------------------------------------------- | -------------------------------------------- |
+| `/`                  | GET    | Service information and available endpoints | None                                         |
+| `/query`             | POST   | Basic inference                             | `{"query": "string"}`                        |
+| `/query-with-memory` | POST   | Inference with conversation memory          | `{"query": "string", "id": "string"}`        |
+| `/query-think`       | POST   | Advanced thinking capabilities              | `{"query": "string"}`                        |
+| `/query-with-tools`  | POST   | Inference with MCP tools support            | `{"query": "string"}`                        |
+| `/synthesize-text`   | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear"}` |
+| `/recognize-audio`   | POST   | Transcribe audio file to text               | Multipart form with `audio_file` and `model` |
+| `/license-info`      | GET    | License and copyright information           | None                                         |
 
 ### Running the Web Server
 
@@ -1093,6 +1151,7 @@ python web_server.py
 ```
 
 The server will start on `http://localhost:8000` with the following URLs available:
+
 - **Main API**: http://localhost:8000
 - **Interactive Documentation**: http://localhost:8000/docs
 - **OpenAPI Schema**: http://localhost:8000/openapi.json
@@ -1150,12 +1209,18 @@ curl http://localhost:8000/license-info
 import requests
 import json
 
-# Base URL
+# Base URL and API key
 base_url = "http://localhost:8000"
+api_key = "rigel_your_api_key_here"
+headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": api_key
+}
 
 # Basic query
 response = requests.post(
     f"{base_url}/query",
+    headers=headers,
     json={"query": "What is machine learning?"}
 )
 print(response.json())
@@ -1163,6 +1228,7 @@ print(response.json())
 # Query with memory
 response = requests.post(
     f"{base_url}/query-with-memory",
+    headers=headers,
     json={
         "query": "Remember that I am working on a Python project",
         "id": "session_001"
@@ -1173,6 +1239,7 @@ print(response.json())
 # Follow up with memory
 response = requests.post(
     f"{base_url}/query-with-memory",
+    headers=headers,
     json={
         "query": "What programming language am I using?",
         "id": "session_001"
@@ -1183,6 +1250,7 @@ print(response.json())
 # Query with tools
 response = requests.post(
     f"{base_url}/query-with-tools",
+    headers=headers,
     json={"query": "Check system information and current time"}
 )
 print(response.json())
@@ -1190,6 +1258,7 @@ print(response.json())
 # Text synthesis
 response = requests.post(
     f"{base_url}/synthesize-text",
+    headers=headers,
     json={
         "text": "This is a test of the voice synthesis system",
         "mode": "chunk"
@@ -1201,6 +1270,7 @@ print(response.json())
 with open("audio.wav", "rb") as audio_file:
     response = requests.post(
         f"{base_url}/recognize-audio",
+        headers={"X-API-Key": api_key},  # Note: no Content-Type for multipart
         files={"audio_file": audio_file},
         data={"model": "tiny"}
     )
@@ -1210,54 +1280,76 @@ print(response.json())
 #### Using JavaScript/Node.js
 
 ```javascript
-const axios = require('axios');
+const axios = require("axios");
 
-const baseURL = 'http://localhost:8000';
+const baseURL = "http://localhost:8000";
+const apiKey = "rigel_your_api_key_here";
+
+// Configure default headers
+const apiClient = axios.create({
+  baseURL,
+  headers: {
+    "Content-Type": "application/json",
+    "X-API-Key": apiKey,
+  },
+});
 
 // Basic query
 async function basicQuery() {
-    try {
-        const response = await axios.post(`${baseURL}/query`, {
-            query: "Explain quantum computing in simple terms"
-        });
-        console.log(response.data);
-    } catch (error) {
-        console.error('Error:', error.response.data);
-    }
+  try {
+    const response = await apiClient.post("/query", {
+      query: "Explain quantum computing in simple terms",
+    });
+    console.log(response.data);
+  } catch (error) {
+    console.error("Error:", error.response?.data || error.message);
+  }
 }
 
 // Query with memory
 async function queryWithMemory() {
-    try {
-        // Start conversation
-        let response = await axios.post(`${baseURL}/query-with-memory`, {
-            query: "I'm learning web development with React",
-            id: "webdev_session"
-        });
-        console.log('First response:', response.data);
+  try {
+    // Start conversation
+    let response = await apiClient.post("/query-with-memory", {
+      query: "I'm learning web development with React",
+      id: "webdev_session",
+    });
+    console.log("First response:", response.data);
 
-        // Continue conversation
-        response = await axios.post(`${baseURL}/query-with-memory`, {
-            query: "What should I learn next?",
-            id: "webdev_session"
-        });
-        console.log('Follow-up response:', response.data);
-    } catch (error) {
-        console.error('Error:', error.response.data);
-    }
+    // Continue conversation
+    response = await apiClient.post("/query-with-memory", {
+      query: "What should I learn next?",
+      id: "webdev_session",
+    });
+    console.log("Follow-up response:", response.data);
+  } catch (error) {
+    console.error("Error:", error.response?.data || error.message);
+  }
 }
 
 // Query with tools
 async function queryWithTools() {
-    try {
-        const response = await axios.post(`${baseURL}/query-with-tools`, {
-            query: "What's the current time and what files are in this directory?"
-        });
-        console.log(response.data);
-    } catch (error) {
-        console.error('Error:', error.response.data);
-    }
+  try {
+    const response = await apiClient.post("/query-with-tools", {
+      query: "What's the current time and what files are in this directory?",
+    });
+    console.log(response.data);
+  } catch (error) {
+    console.error("Error:", error.response?.data || error.message);
+  }
 }
+
+// Handle rate limiting
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 429) {
+      console.log("Rate limit hit, retrying in 60 seconds...");
+      // Implement retry logic here
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Run examples
 basicQuery();
@@ -1274,6 +1366,7 @@ The web server provides the same powerful AI capabilities as the D-Bus interface
 ## Logging
 
 RIGEL includes comprehensive logging capabilities. Logs are written to:
+
 - `core/rigel.log` - Main application logs
 - `core/syslog.log` - System logs
 
@@ -1292,6 +1385,7 @@ Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
 
 This means you can:
+
 - Use the software for any purpose
 - Study and modify the source code
 - Share copies of the software
@@ -1319,4 +1413,142 @@ For support, please open an issue in the GitHub repository or contact Zerone Lab
 
 An effort to make it easier for the opensource community to build your own Virtual Assistant.
 
-**Zerone Laboratories Systems - RIGEL Engine v4.0.X[Dev]** 
+**Zerone Laboratories Systems - RIGEL Engine v4.0.X[Dev]**
+
+## Monetization & API Keys
+
+RIGEL Web Service includes built-in API key authentication and usage tracking for commercial deployment.
+
+### Authentication
+
+All API endpoints (except root `/` and `/license-info`) require authentication via API key:
+
+```bash
+# Include API key in requests
+curl -X POST "http://localhost:8000/query" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
+     -d '{"query": "Hello RIGEL!"}'
+```
+
+### API Key Management
+
+#### Using the Management Script
+
+```bash
+# Create new API key
+python manage_keys.py create "Customer Name" pro
+
+# List all tenants
+python manage_keys.py list
+
+# Get usage statistics
+python manage_keys.py usage 1
+
+# Deactivate/activate tenant
+python manage_keys.py deactivate 1
+python manage_keys.py activate 1
+```
+
+#### Using Admin API
+
+Set admin key via environment variable:
+
+```bash
+export RIGEL_ADMIN_KEY="your_secure_admin_key"
+```
+
+Admin endpoints:
+
+```bash
+# Create new API key
+curl -X POST "http://localhost:8000/admin/create-key" \
+     -H "Content-Type: application/json" \
+     -H "X-Admin-Key: your_secure_admin_key" \
+     -d '{"name": "Customer Name", "plan": "pro"}'
+
+# Get usage stats
+curl -H "X-Admin-Key: your_secure_admin_key" \
+     "http://localhost:8000/admin/usage/1"
+
+# List all tenants
+curl -H "X-Admin-Key: your_secure_admin_key" \
+     "http://localhost:8000/admin/list-tenants"
+```
+
+### Subscription Plans
+
+| Plan       | Monthly Quota    | Daily Quota    | Rate Limit (req/min) | Features                |
+| ---------- | ---------------- | -------------- | -------------------- | ----------------------- |
+| Free       | 1,000 requests   | 100 requests   | 10                   | Basic inference only    |
+| Pro        | 20,000 requests  | 1,000 requests | 60                   | All features            |
+| Enterprise | 100,000 requests | 5,000 requests | 300                  | All features + priority |
+
+### Usage Tracking
+
+The system tracks:
+
+- **Request count** per tenant per endpoint
+- **Token estimation** for billing purposes
+- **Response time** for performance monitoring
+- **Rate limiting** to prevent abuse
+
+Token multipliers by endpoint:
+
+- `/query`, `/query-with-memory`: 1x
+- `/query-think`: 2x (advanced reasoning)
+- `/query-with-tools`: 3x (system operations)
+- Voice endpoints: 1x
+
+### Production Deployment
+
+For production deployment with monetization:
+
+1. **Set secure admin key**:
+
+   ```bash
+   export RIGEL_ADMIN_KEY="$(openssl rand -base64 32)"
+   ```
+
+2. **Configure database backups**:
+
+   ```bash
+   # Backup usage database
+   cp rigel_usage.db rigel_usage_backup_$(date +%Y%m%d).db
+   ```
+
+3. **Set up SSL/TLS** with reverse proxy (Nginx/Caddy)
+
+4. **Monitor usage** and set up billing integration:
+
+   ```python
+   # Example: Export usage data for billing
+   import sqlite3
+
+   conn = sqlite3.connect("rigel_usage.db")
+   cursor = conn.cursor()
+
+   # Get monthly usage for billing
+   cursor.execute("""
+       SELECT t.name, t.plan, COUNT(u.id) as requests,
+              SUM(u.tokens_estimated) as tokens
+       FROM tenants t
+       LEFT JOIN usage u ON t.id = u.tenant_id
+       WHERE u.timestamp >= date('now', '-30 days')
+       GROUP BY t.id
+   """)
+   ```
+
+### Rate Limiting
+
+Built-in rate limiting per plan:
+
+- **Free**: 10 requests/minute
+- **Pro**: 60 requests/minute
+- **Enterprise**: 300 requests/minute
+
+Quota enforcement:
+
+- **Daily limits** reset at midnight UTC
+- **Monthly limits** reset on the same day each month
+- **429 Too Many Requests** returned when limits exceeded
