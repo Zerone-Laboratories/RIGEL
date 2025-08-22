@@ -110,7 +110,7 @@ class RigelServer(object):
         messages = [
             (
                 "system",
-                f"{"" if RAG else system_prompt}"
+                "" if RAG == '"true"' else system_prompt
             ),
             (
                 "human", f"{query}"

@@ -3,7 +3,7 @@ services:
   rigel-server:
     build: .
     environment:
-      - SERVER_TYPE=web # Change to 'dbus' to run dbus_server.py
+      - SERVER_TYPE=dbus # Change to 'dbus' to run dbus_server.py
       - GROQ_API_KEY={} # Ensure this is set in your environment
       - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default to groq, can be set to 'ollama'
     command: >
