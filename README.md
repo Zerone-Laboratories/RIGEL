@@ -1160,17 +1160,24 @@ The server will start on `http://localhost:8000` with the following URLs availab
 
 ## Docker Deployment
 
+RIGEL can be easily deployed using Docker, providing a consistent environment across different systems without worrying about dependencies.
+
 ### Using Docker Compose
 
+The project includes a `docker-compose.yml` file that allows you to start either the web server or D-Bus server with minimal setup.
+
 ```bash
-# Start with default GROQ backend
+# Start with default GROQ backend and web server
 docker-compose up
 
-# Start with OLLAMA backend
+# Start with OLLAMA backend and web server
 INFERENCE_ENGINE=ollama docker-compose up
 
-# Start with custom environment
+# Start with custom environment variables
 INFERENCE_ENGINE=groq GROQ_API_KEY=your_key_here docker-compose up
+
+# Start with D-Bus server instead of web server
+SERVER_TYPE=dbus docker-compose up
 ```
 
 > **Note**: When using OLLAMA backend with Docker, the Ollama server will automatically start inside the container. You don't need to start Ollama separately.
@@ -1179,9 +1186,42 @@ INFERENCE_ENGINE=groq GROQ_API_KEY=your_key_here docker-compose up
 
 - **Automatic Ollama Startup**: When `INFERENCE_ENGINE=ollama` is set, the Ollama server will be automatically started inside the container
 - **Persistent Models**: Ollama models are stored in a Docker volume to persist between container restarts
+- **GPU Support**: Includes NVIDIA GPU support for accelerated inference
+- **Server Type Selection**: Choose between web server and D-Bus server using the `SERVER_TYPE` environment variable
 - **Port Mapping**: 
   - Port 8000: RIGEL Web API
   - Port 11434: Ollama API (when using Ollama backend)
+
+### Starting the D-Bus Server with Docker
+
+To run the D-Bus server in Docker, which allows for system-level integration:
+
+```bash
+# Start with D-Bus server and GROQ backend
+SERVER_TYPE=dbus docker-compose up
+
+# Start with D-Bus server and OLLAMA backend
+SERVER_TYPE=dbus INFERENCE_ENGINE=ollama docker-compose up
+```
+
+When running the D-Bus server in Docker, you'll need to ensure proper D-Bus connectivity between the container and the host system. This may require additional configuration depending on your system setup.
+
+### Starting the Web Server with Docker
+
+The web server is the default mode when using Docker Compose:
+
+```bash
+# Start with web server and GROQ backend (default)
+docker-compose up
+
+# Start with web server and OLLAMA backend
+INFERENCE_ENGINE=ollama docker-compose up
+
+# With custom API key
+GROQ_API_KEY=your_key_here docker-compose up
+```
+
+Once started, the web server will be accessible at http://localhost:8000 with documentation at http://localhost:8000/docs.
 
 ### Web API Usage Examples
 
