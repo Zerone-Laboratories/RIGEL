@@ -1,5 +1,5 @@
 # Use Ubuntu instead of Debian for more up-to-date packages
-FROM ubuntu:22.04
+FROM nvidia/cuda:12.2.0-base-ubuntu22.04
 
 # Set environment variables to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -45,7 +45,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python || true
 
 # Install PyGObject through system packages instead of pip
 # Then install PyTorch separately since it's large
-RUN python -m pip install --no-cache-dir torch==2.5.1
+RUN python -m pip install --no-cache-dir torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 # Then install the rest of the requirements with a modified requirements file
 COPY . /app
@@ -53,6 +53,10 @@ COPY . /app
 # Install Python dependencies excluding PyGObject
 RUN grep -v "PyGObject" requirements.txt > requirements_filtered.txt && \
     python -m pip install --no-cache-dir -r requirements_filtered.txt
+
+RUN  curl -fsSL https://ollama.com/install.sh | sh
+
+RUN chmod +x /usr/local/bin/ollama
 
 # Default to web_server.py, can be overridden by CMD
 CMD ["python", "web_server.py"]

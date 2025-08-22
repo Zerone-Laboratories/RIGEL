@@ -948,7 +948,7 @@ async def initialize_rigel():
         rigel = RigelOllama(model_name="llama3.2", mcp_endpoint=default_mcp)
         print("RIGEL initialized with OLLAMA backend")
     else:  # Default to GROQ
-        rigel = RigelGroq(model_name="llama-3.3-70b-versatile", mcp_endpoint=default_mcp)
+        rigel = RigelGroq(model_name="", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
     
     print("Initializing voice synthesis and recognition...")

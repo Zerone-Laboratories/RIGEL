@@ -15,6 +15,13 @@ services:
     volumes:
       - .:/app
       - ollama-models:/root/.ollama # Persist Ollama models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
 volumes:
   ollama-models: # Volume for Ollama models
