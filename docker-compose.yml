@@ -3,12 +3,13 @@ services:
   rigel-server:
     build: .
     environment:
-      - SERVER_TYPE=dbus # Change to 'dbus' to run dbus_server.py
+      - SERVER_TYPE=web # Change to 'dbus' to run dbus_server.py
       - GROQ_API_KEY={} # Ensure this is set in your environment
-      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default to groq, can be set to 'ollama'
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-ollama} # Default to groq, can be set to 'ollama'
+      - OLLAMA_USE_GPU=true # Force Ollama to use GPU
     command: >
-      sh -c "if [ \"$INFERENCE_ENGINE\" = 'ollama' ]; then (nohup ollama serve &) && sleep 5; fi && 
-             if [ \"$SERVER_TYPE\" = 'dbus' ]; then python dbus_server.py; else python web_server.py; fi"
+      sh -c "if [ \"$$INFERENCE_ENGINE\" = 'ollama' ]; then (nohup ollama serve &) && sleep 5; fi && 
+             if [ \"$$SERVER_TYPE\" = 'dbus' ]; then python dbus_server.py; else python web_server.py; fi"
     ports:
       - "8000:8000" # Adjust if your web_server.py uses a different port
       - "11434:11434" # Ollama API port if INFERENCE_ENGINE=ollama
