@@ -378,6 +378,7 @@ class QueryRequest(BaseModel):
 class QueryWithMemoryRequest(BaseModel):
     query: str
     id: str
+    RAG: Optional[str] = "false"
 
 class SynthesizeRequest(BaseModel):
     text: str
@@ -497,11 +498,23 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
     start_time = time.time()
     
     try:
+        syslog.info(f"DEBUG: {request.RAG}")
         messages = [
-            ("system", f"{system_prompt}"),
-            ("human", f"{request.query}")
+            (
+                "system",
+                "" if request.RAG == "true" else system_prompt
+            ),
+            (
+                "human", f"{request.query}"
+            )
         ]
-        response = rigel.inference_with_memory(messages=messages, thread_id=request.id)
+        if request.RAG == "true":
+            RAG_Stat = True
+        else:
+            RAG_Stat = False
+        syslog.info(f"DEBUG: RAGSTAT = {RAG_Stat}")
+        
+        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=RAG_Stat)
         
         # Record usage
         duration_ms = int((time.time() - start_time) * 1000)
@@ -692,7 +705,7 @@ async def get_license_info():
     return LicenseResponse(license_info=json.dumps(license_info, indent=2))
 
 # Admin endpoints
-ADMIN_API_KEY = os.getenv("RIGEL_ADMIN_KEY", "rigel_admin_change_me_please")
+ADMIN_API_KEY = os.getenv("RIGEL_ADMIN_KEY", "rigel_admin_" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:16])
 
 async def require_admin_key(x_admin_key: str = Header(None, alias="X-Admin-Key")):
     """FastAPI dependency for admin authentication"""
