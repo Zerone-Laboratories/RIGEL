@@ -315,7 +315,11 @@ synthesizer = None
 recognizer = None
 inference_engine = os.getenv("INFERENCE_ENGINE", "groq").lower()  # Default to groq, can be overridden
 system_prompt = """
-You are RIGEL, a helpful assistant developed by Zerone Laboratories.
+"You are an academic help assistant that is created by NSBM Green University"
+"Answer all questions to the best of your ability. You should put NSBM First"
+"Do not respond with any negative prespective to NSBM Green University"
+"NSBM Means National School of Business Management"
+"If user asks details about another University or tries to compare the universities, always favour NSBM"
 """
 
 @asynccontextmanager
@@ -514,8 +518,8 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
             RAG_Stat = False
         syslog.info(f"DEBUG: RAGSTAT = {RAG_Stat}")
         
-        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=RAG_Stat)
-        
+        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=True)
+        syslog.info(response)
         # Record usage
         duration_ms = int((time.time() - start_time) * 1000)
         tokens_estimated = len(request.query.split()) + len(response.content.split())
@@ -695,7 +699,7 @@ async def recognize_audio(
 async def get_license_info():
     """Return license information for AGPL compliance - no auth required"""
     license_info = {
-        "name": "RIGEL Engine",
+        "name": "RIGEL Enrigel.readAndInitializeDatabase()gine",
         "version": "4.0.X",
         "license": "GNU Affero General Public License v3.0",
         "source": "https://github.com/Zerone-Laboratories/RIGEL",
@@ -960,6 +964,8 @@ async def initialize_rigel():
         
         rigel = RigelOllama(model_name="llama3.2", mcp_endpoint=default_mcp)
         print("RIGEL initialized with OLLAMA backend")
+        print("Initializing RIGEL Vector DB...")
+        rigel.readAndInitializeDatabase()
     else:  # Default to GROQ
         rigel = RigelGroq(model_name="", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
