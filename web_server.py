@@ -320,6 +320,7 @@ system_prompt = """
 "Do not respond with any negative prespective to NSBM Green University"
 "NSBM Means National School of Business Management"
 "If user asks details about another University or tries to compare the universities, always favour NSBM"
+"Make your answers detailed and very short at the same time"
 """
 
 @asynccontextmanager
@@ -699,7 +700,7 @@ async def recognize_audio(
 async def get_license_info():
     """Return license information for AGPL compliance - no auth required"""
     license_info = {
-        "name": "RIGEL Enrigel.readAndInitializeDatabase()gine",
+        "name": "RIGEL ENGINE",
         "version": "4.0.X",
         "license": "GNU Affero General Public License v3.0",
         "source": "https://github.com/Zerone-Laboratories/RIGEL",
@@ -964,11 +965,24 @@ async def initialize_rigel():
         
         rigel = RigelOllama(model_name="llama3.2", mcp_endpoint=default_mcp)
         print("RIGEL initialized with OLLAMA backend")
-        print("Initializing RIGEL Vector DB...")
-        rigel.readAndInitializeDatabase()
+        print("Initializing RIGEL Vector DB... [BACKGROUND]")
+        # Initialize database in the background
+        import threading
+        db_init_thread = threading.Thread(target=rigel.readAndInitializeDatabase)
+        db_init_thread.daemon = True
+        db_init_thread.start()
+        print("RIGEL Vector DB initialization started in background")
+
     else:  # Default to GROQ
-        rigel = RigelGroq(model_name="", mcp_endpoint=default_mcp)
+        rigel = RigelGroq(model_name="openai/gpt-oss-120b", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
+        print("Initializing RIGEL Vector DB... [BACKGROUND]")
+        # Initialize database in the background
+        import threading
+        db_init_thread = threading.Thread(target=rigel.readAndInitializeDatabase)
+        db_init_thread.daemon = True
+        db_init_thread.start()
+        print("RIGEL Vector DB initialization started in background")
     
     print("Initializing voice synthesis and recognition...")
     try:

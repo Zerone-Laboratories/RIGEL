@@ -20,8 +20,14 @@ import os
 
 
 class DBConn:
+    # Static client to be reused across instances
+    _client = None
+    
     def __init__(self):
-        self.chroma_client = chromadb.PersistentClient(path="db/chroma_db")
+        # Use the static client if it exists, otherwise create it
+        if DBConn._client is None:
+            DBConn._client = chromadb.PersistentClient(path="db/chroma_db")
+        self.chroma_client = DBConn._client
         self.collection = self.chroma_client.get_or_create_collection(name="rag_data")
 
 

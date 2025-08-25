@@ -177,6 +177,17 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.client = mcp_endpoint
 
     def readAndInitializeDatabase(self):
+        # Check if the database already exists and is populated
+        db_path = "db/chroma_db"
+        if os.path.exists(db_path) and os.path.isdir(db_path):
+            # Check if files exist in the chroma DB directory that indicate it's already initialized
+            chroma_files = glob.glob(os.path.join(db_path, "chroma.sqlite3"))
+            if chroma_files:
+                syslog.info("ChromaDB is already initialized, reusing existing database")
+                self.ragdb = DBConn()
+                return
+        
+        # If we get here, we need to initialize the database
         current_dir = os.path.dirname(os.path.abspath(__file__))
         rigel_data_dir = os.path.join(current_dir, "rigel_data")
         pdf_pattern = os.path.join(rigel_data_dir, "*.pdf")
