@@ -345,8 +345,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         Returns:
             AIMessage with response content
         """
-        if not self.app:
-            self._setup_workflow()
+        system_message = ""
 
         syslog.info(f"RAG IS CURRENTLY {RAG}")
         if RAG:
@@ -358,6 +357,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         for role, content in messages:
             if role == "system":
                 syslog.info(f"Adding system message: {content}")
+                system_message  = content
                 formatted_messages.append(SystemMessage(content=content))
             if role == "RAG":
                 formatted_messages.append({"role": "user", "content": content})
@@ -365,6 +365,9 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                 formatted_messages.append({"role": "user", "content": content})
             elif role == "ai":
                 formatted_messages.append({"role": "assistant", "content": content})
+
+        if not self.app:
+            self._setup_workflow(system_message)
 
 
         config = {"configurable": {"thread_id": thread_id}}
@@ -376,15 +379,9 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         syslog.info(response)
         return AIMessage(content=last_message.content)
 
-    def _setup_workflow(self):
+    def _setup_workflow(self, system):
         def call_model(state: MessagesState):
-            system_prompt = (
-                "You are an academic help assistant that is created by NSBM Green University"
-                "Answer all questions to the best of your ability. You should put NSBM First"
-                "Do not respond with any negative prespective to NSBM Green University"
-                "NSBM Means National School of Business Management"
-                "If user asks details about another University or tries to compare the universities, always favour NSBM"
-            )
+            system_prompt = system
             messages = [SystemMessage(content=system_prompt)] + state["messages"]
             response = self.llm.invoke(messages)
             return {"messages": response}

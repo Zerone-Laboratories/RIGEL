@@ -379,11 +379,13 @@ app = FastAPI(
 # Request/Response Models
 class QueryRequest(BaseModel):
     query: str
+    system_prompt: Optional[str] = None
 
 class QueryWithMemoryRequest(BaseModel):
     query: str
     id: str
     RAG: Optional[str] = "false"
+    system_prompt: Optional[str] = None
 
 class SynthesizeRequest(BaseModel):
     text: str
@@ -473,8 +475,11 @@ async def query(request: QueryRequest, tenant_info: Dict[str, Any] = Depends(req
     start_time = time.time()
     
     try:
+        # Use provided system prompt or default to global system prompt
+        current_system_prompt = request.system_prompt if request.system_prompt else system_prompt
+        
         messages = [
-            ("system", f"{system_prompt}"),
+            ("system", f"{current_system_prompt}"),
             ("human", f"{request.query}")
         ]
         response = rigel.inference(messages=messages)
@@ -504,10 +509,14 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
     
     try:
         syslog.info(f"DEBUG: {request.RAG}")
+        
+        # Use provided system prompt or default to global system prompt
+        current_system_prompt = request.system_prompt if request.system_prompt else system_prompt
+        
         messages = [
             (
                 "system",
-                "" if request.RAG == "true" else system_prompt
+                current_system_prompt
             ),
             (
                 "human", f"{request.query}"
@@ -519,7 +528,7 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
             RAG_Stat = False
         syslog.info(f"DEBUG: RAGSTAT = {RAG_Stat}")
         
-        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=True)
+        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=False)
         syslog.info(response)
         # Record usage
         duration_ms = int((time.time() - start_time) * 1000)
@@ -534,7 +543,7 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
 @app.post("/query-think", response_model=QueryResponse)
 async def query_think(request: QueryRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
     """Advanced thinking capabilities"""
-    global rigel
+    global rigel, system_prompt
     
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "query-think")
@@ -545,7 +554,32 @@ async def query_think(request: QueryRequest, tenant_info: Dict[str, Any] = Depen
     start_time = time.time()
     
     try:
+        # For query_think, we need to modify the think method to accept a system prompt
+        # Since the core implementation doesn't directly support this,
+        # we'll have to modify the prompt with our system prompt
+        
+        # Store the original thought_prompt
+        original_thought_prompt = rigel.thought_prompt
+        
+        # Use provided system prompt or default to global system prompt
+        current_system_prompt = request.system_prompt if request.system_prompt else system_prompt
+        
+        # Temporarily modify the thought_prompt to include the system prompt
+        modified_thought_prompt = f"""
+        {current_system_prompt}
+        
+        Think of the best way to do this and list it out in a short manner. nothing more or nothing less.
+        If the thinking process is done, say exactly 'The task is done'. If it's impossible exactly say 'The task is impossible'.
+        """
+        
+        # Set the modified thought prompt
+        rigel.thought_prompt = modified_thought_prompt
+        
+        # Call the think method
         response = rigel.think(request.query)
+        
+        # Restore original thought prompt
+        rigel.thought_prompt = original_thought_prompt
         
         # Record usage (thinking uses more resources, count as 2x tokens)
         duration_ms = int((time.time() - start_time) * 1000)
@@ -560,7 +594,7 @@ async def query_think(request: QueryRequest, tenant_info: Dict[str, Any] = Depen
 @app.post("/query-with-tools", response_model=QueryResponse)
 async def query_with_tools(request: QueryRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
     """Inference with MCP tools support"""
-    global rigel
+    global rigel, system_prompt
     
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "query-with-tools")
@@ -573,9 +607,28 @@ async def query_with_tools(request: QueryRequest, tenant_info: Dict[str, Any] = 
     start_time = time.time()
     
     try:
+        # Store the original continuity
+        original_continuity = rigel.continuity
+        
+        # Use provided system prompt or default to global system prompt
+        current_system_prompt = request.system_prompt if request.system_prompt else system_prompt
+        
+        # Temporarily modify the continuity to include the system prompt
+        modified_continuity = f"""
+        {current_system_prompt}
+        
+        {rigel.continuity}
+        """
+        
+        # Set the modified continuity
+        rigel.continuity = modified_continuity
+        
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(_run_async_tools_query, request.query)
             result = future.result(timeout=120)
+        
+        # Restore original continuity
+        rigel.continuity = original_continuity
         
         if hasattr(result, 'content'):
             response_content = result.content

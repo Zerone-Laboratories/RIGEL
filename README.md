@@ -1126,10 +1126,10 @@ The web server provides the same functionality as the D-Bus server through HTTP 
 | Endpoint                       | Method | Description                                 | Request Body                                 |
 | ------------------------------ | ------ | ------------------------------------------- | -------------------------------------------- |
 | `/`                            | GET    | Service information and available endpoints | None                                         |
-| `/query`                       | POST   | Basic inference                             | `{"query": "string"}`                        |
-| `/query-with-memory`           | POST   | Inference with conversation memory          | `{"query": "string", "id": "string"}`        |
-| `/query-think`                 | POST   | Advanced thinking capabilities              | `{"query": "string"}`                        |
-| `/query-with-tools`            | POST   | Inference with MCP tools support            | `{"query": "string"}`                        |
+| `/query`                       | POST   | Basic inference                             | `{"query": "string", "system_prompt": "string?"}` |
+| `/query-with-memory`           | POST   | Inference with conversation memory          | `{"query": "string", "id": "string", "system_prompt": "string?"}` |
+| `/query-think`                 | POST   | Advanced thinking capabilities              | `{"query": "string", "system_prompt": "string?"}` |
+| `/query-with-tools`            | POST   | Inference with MCP tools support            | `{"query": "string", "system_prompt": "string?"}` |
 | `/synthesize-text`             | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear"}` |
 | `/recognize-audio`             | POST   | Transcribe audio file to text               | Multipart form with `audio_file` and `model` |
 | `/license-info`                | GET    | License and copyright information           | None                                         |
@@ -1231,14 +1231,22 @@ Once started, the web server will be accessible at http://localhost:8000 with do
 # Service information
 curl http://localhost:8000/
 
-# Basic query
+# Basic query with default system prompt
 curl -X POST "http://localhost:8000/query" \
      -H "Content-Type: application/json" \
+     -H "X-API-Key": api_key \
      -d '{"query": "Hello RIGEL! Tell me about artificial intelligence."}'
 
-# Query with memory - start conversation
+# Basic query with custom system prompt
+curl -X POST "http://localhost:8000/query" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key": api_key \
+     -d '{"query": "Hello RIGEL! Tell me about artificial intelligence.", "system_prompt": "You are a helpful tech assistant that specializes in AI technologies."}'
+
+# Query with memory and default system prompt
 curl -X POST "http://localhost:8000/query-with-memory" \
      -H "Content-Type: application/json" \
+     -H "X-API-Key": api_key \
      -d '{"query": "My name is Alice and I am a software developer", "id": "user123"}'
 
 # Query with memory - continue conversation
@@ -1284,11 +1292,22 @@ headers = {
     "X-API-Key": api_key
 }
 
-# Basic query
+# Basic query with default system prompt
 response = requests.post(
     f"{base_url}/query",
     headers=headers,
     json={"query": "What is machine learning?"}
+)
+print(response.json())
+
+# Basic query with custom system prompt
+response = requests.post(
+    f"{base_url}/query",
+    headers=headers,
+    json={
+        "query": "What is machine learning?",
+        "system_prompt": "You are an AI expert specializing in explaining complex concepts to beginners."
+    }
 )
 print(response.json())
 
@@ -1425,6 +1444,75 @@ queryWithTools();
 ```
 
 The web server provides the same powerful AI capabilities as the D-Bus interface but with the flexibility and accessibility of HTTP/REST APIs, making it perfect for web applications, mobile apps, and cross-platform integrations.
+
+## System Prompts
+
+RIGEL allows you to customize the system prompt for all inference endpoints. You can provide a custom system prompt that defines the assistant's personality, capabilities, or domain expertise.
+
+### Default System Prompt
+
+If no custom system prompt is provided, RIGEL will use a default system prompt that configures the assistant as an academic helper for NSBM Green University.
+
+### Custom System Prompts
+
+All inference endpoints (`/query`, `/query-with-memory`, `/query-think`, and `/query-with-tools`) accept an optional `system_prompt` parameter that allows you to override the default system prompt.
+
+#### Examples
+
+**Using curl:**
+
+```bash
+# Query with custom system prompt
+curl -X POST "http://localhost:8000/query" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key": your_api_key \
+     -d '{"query": "Tell me about climate change", "system_prompt": "You are a climate scientist who explains environmental issues in simple terms."}'
+
+# Query with memory and custom system prompt
+curl -X POST "http://localhost:8000/query-with-memory" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key": your_api_key \
+     -d '{"query": "Tell me about rising sea levels", "id": "climate_discussion", "system_prompt": "You are a climate scientist who explains environmental issues in simple terms."}'
+```
+
+**Using Python:**
+
+```python
+import requests
+
+# Configure API client
+base_url = "http://localhost:8000"
+headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": "your_api_key_here"
+}
+
+# Define a custom system prompt
+medical_prompt = """
+You are a helpful medical assistant providing general health information.
+Always clarify that you're not a doctor and your advice is not a substitute for professional medical care.
+Focus on evidence-based information and avoid prescribing treatments.
+"""
+
+# Query with custom system prompt
+response = requests.post(
+    f"{base_url}/query",
+    headers=headers,
+    json={
+        "query": "What are symptoms of dehydration?",
+        "system_prompt": medical_prompt
+    }
+)
+print(response.json())
+```
+
+### System Prompt Best Practices
+
+1. **Be specific**: Clearly define the role, personality, and constraints of the assistant
+2. **Include guidance**: Add instructions on how to format responses or what topics to focus on
+3. **Set boundaries**: Define what the assistant should or should not do
+4. **Keep it concise**: While detailed instructions help, overly long system prompts may reduce effectiveness
+5. **Test iteratively**: Try different system prompts to find what works best for your use case
 
 ## Environment Variables
 
