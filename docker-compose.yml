@@ -5,7 +5,7 @@ services:
     environment:
       - SERVER_TYPE=dbus # Change to 'dbus' to run dbus_server.py
       - GROQ_API_KEY= # Ensure this is set in your environment
-      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default to groq, can be set to 'ollama'
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-ollama} # Default to groq, can be set to 'ollama'
       - OLLAMA_USE_GPU=true # Force Ollama to use GPU
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
       - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket

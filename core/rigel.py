@@ -112,6 +112,14 @@ from langchain.chains import ConversationChain
 import random
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from core.rdb import DBConn
+from typing import Dict, List, Any, Optional, Union, Tuple
+
+# Import OSTools if available
+try:
+    from core.os_tools import OSTools
+    OS_TOOLS_AVAILABLE = True
+except ImportError:
+    OS_TOOLS_AVAILABLE = False
 
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
@@ -146,6 +154,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         )
         self.continuity = """
                         Proceed. You CAN run code on my machine.
+                        ALWAYS run  the command in the 'Working Directory' and remember the working directory
                         When providing tool outputs (like file listings, command results, etc.), always include the actual output in your response.
                         If the entire task I asked for is done, say exactly 'The task is done.' after providing all relevant outputs and results.
                         If you need some specific information (like username or password) say EXACTLY 'Please provide more information.'
@@ -175,6 +184,14 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         #     verbose=False
         # )
         self.client = mcp_endpoint
+        
+        # Initialize OS Tools if available
+        if OS_TOOLS_AVAILABLE:
+            self.os_tools = OSTools()
+            syslog.info("OS Tools initialized successfully")
+        else:
+            self.os_tools = None
+            syslog.warning("OS Tools module not available. Advanced OS operations will be limited.")
 
     def readAndInitializeDatabase(self):
         # Check if the database already exists and is populated
@@ -271,8 +288,9 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                     try:
                         result = await self.agent.ainvoke({"messages": messages})
                         break
-                    except:
-                        syslog.error("Inference Failed !, Retrying...")
+                    except Exception as e:
+                        syslog.error(f"Inference Failed !, Retrying... Error: {str(e)}")
+                        result = f"Error occured with inference !"
                         pass
                 new_messages = result["messages"][len(messages):]
 
@@ -282,10 +300,13 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                         iteration_output.append(str(msg.content))
                     elif hasattr(msg, 'tool_calls') and msg.tool_calls:
                         for tool_call in msg.tool_calls:
-                            iteration_output.append(f"Tool: {tool_call.get('name', 'unknown')}")
+                            if isinstance(tool_call, dict):
+                                tool_name = tool_call.get('name', 'unknown')
+                                iteration_output.append(f"Tool: {tool_name}")
                     elif hasattr(msg, 'name') and hasattr(msg, 'content'):
                         iteration_output.append(f"Tool Result ({msg.name}): {msg.content}")
                     else:
+                        # Safe conversion to string regardless of the object type
                         iteration_output.append(str(msg))
 
                 final_message = result["messages"][-1]
@@ -476,6 +497,119 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             syslog.info(f"Cleared memory for thread: {thread_id}")
         except Exception as e:
             syslog.warning(f"Could not clear memory for thread {thread_id}: {e}")
+            
+    # OS Tools direct integration methods
+    def execute_command(self, command: str, timeout: int = 30, 
+                        working_dir: str = None) -> Dict[str, Any]:
+        """
+        Execute a system command safely with timeout and output capture.
+        
+        Args:
+            command: The shell command to execute
+            timeout: Command timeout in seconds (default: 30)
+            working_dir: Directory to execute command in (defaults to current directory)
+            
+        Returns:
+            Dictionary with command result and output
+        """
+        if not self.os_tools:
+            syslog.error("OS Tools not available")
+            return {"success": False, "error": "OS Tools not available"}
+            
+        return self.os_tools.execute_command(
+            command=command,
+            timeout=timeout,
+            working_dir=working_dir
+        )
+    
+    def create_temp_program(self, content: str, file_extension: str = ".py") -> Dict[str, Any]:
+        """
+        Create a temporary program file with the given content.
+        
+        Args:
+            content: Source code to write to the file
+            file_extension: File extension for the temporary file (defaults to .py)
+            
+        Returns:
+            Dictionary with file information
+        """
+        if not self.os_tools:
+            syslog.error("OS Tools not available")
+            return {"success": False, "error": "OS Tools not available"}
+            
+        return self.os_tools.create_temp_program(
+            content=content,
+            file_extension=file_extension
+        )
+    
+    def execute_temp_program(self, file_path: str, args: List[str] = None, 
+                            interpreter: str = None, timeout: int = 30) -> Dict[str, Any]:
+        """
+        Execute a temporary program with optional arguments and interpreter.
+        
+        Args:
+            file_path: Path to the temporary program file
+            args: List of command-line arguments to pass to the program
+            interpreter: Interpreter to use (e.g., "python", "node", "bash")
+                        If None, determined by file extension
+            timeout: Execution timeout in seconds
+            
+        Returns:
+            Dictionary with execution result
+        """
+        if not self.os_tools:
+            syslog.error("OS Tools not available")
+            return {"success": False, "error": "OS Tools not available"}
+            
+        return self.os_tools.execute_temp_program(
+            file_path=file_path,
+            args=args,
+            interpreter=interpreter,
+            timeout=timeout
+        )
+    
+    def create_and_execute_program(self, content: str, file_extension: str = ".py", 
+                                  args: List[str] = None, interpreter: str = None, 
+                                  timeout: int = 30, cleanup: bool = True) -> Dict[str, Any]:
+        """
+        Create and execute a temporary program in one operation.
+        
+        Args:
+            content: Source code content
+            file_extension: File extension
+            args: Program arguments
+            interpreter: Program interpreter
+            timeout: Execution timeout
+            cleanup: Whether to delete the temporary file after execution
+            
+        Returns:
+            Dictionary with execution result
+        """
+        if not self.os_tools:
+            syslog.error("OS Tools not available")
+            return {"success": False, "error": "OS Tools not available"}
+            
+        return self.os_tools.create_and_execute_program(
+            content=content,
+            file_extension=file_extension,
+            args=args,
+            interpreter=interpreter,
+            timeout=timeout,
+            cleanup=cleanup
+        )
+    
+    def get_detailed_system_info(self) -> Dict[str, Any]:
+        """
+        Get detailed system information.
+        
+        Returns:
+            Dictionary with extensive system information
+        """
+        if not self.os_tools:
+            syslog.error("OS Tools not available")
+            return {"success": False, "error": "OS Tools not available"}
+            
+        return self.os_tools.get_detailed_system_info()
 
 class RigelOllama(Rigel): # RIGEL with ollama backend
     def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
@@ -564,3 +698,42 @@ if __name__ == "__main__":
     # Clear memory example
     rigel.clear_memory(thread_id="randomNumberGoesHere")
     syslog.info("Memory functionality test completed")
+    
+    # OS Tools examples
+    if OS_TOOLS_AVAILABLE:
+        syslog.info("Testing OS Tools functionality...")
+        
+        # Execute a simple command
+        cmd_result = rigel.execute_command("ls -la")
+        syslog.debug(f"Command execution result: {cmd_result['success']}")
+        syslog.debug(f"Command output: {cmd_result.get('stdout', '')[:100]}...")
+        
+        # Create and execute a temporary Python program
+        python_code = """
+import os
+import platform
+import sys
+
+print("Hello from a temporary Python program!")
+print(f"Python version: {platform.python_version()}")
+print(f"Arguments: {sys.argv[1:]}")
+print(f"Current directory: {os.getcwd()}")
+"""
+        
+        program_result = rigel.create_and_execute_program(
+            content=python_code,
+            args=["arg1", "arg2"],
+            cleanup=True
+        )
+        
+        syslog.debug(f"Program execution result: {program_result['success']}")
+        syslog.debug(f"Program output: {program_result.get('stdout', '')}")
+        
+        # Get detailed system information
+        sys_info = rigel.get_detailed_system_info()
+        syslog.debug(f"System info example: Python version: {sys_info.get('info', {}).get('python', {}).get('version', 'unknown')}")
+        
+        syslog.info("OS Tools functionality test completed")
+        
+    else:
+        syslog.warning("OS Tools not available for testing")
