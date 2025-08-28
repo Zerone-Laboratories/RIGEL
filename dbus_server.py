@@ -221,25 +221,9 @@ if __name__ == "__main__":
     default_mcp = MultiServerMCPClient(
         {
             "rigel tools": {
-                "url": "http://localhost:8001/sse",
+                "url": "http://rigel-tools-server:8001/sse",
                 "transport": "sse",
             },
-            "python-toolbox": {
-                "command": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv/bin/python",
-                "args": [
-                    "-m",
-                    "mcp_python_toolbox",
-                    "--workspace",
-                    "/home/zerone/Documents/RIGEL_Data"
-                ],
-                "env": {
-                    "PYTHONPATH": "/home/zerone/Projects/NotMine/mcp_python_toolbox/src",
-                    "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                    "VIRTUAL_ENV": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv",
-                    "PYTHONHOME": ""
-                },
-                "transport": "stdio"
-            }
         },
     )
     if default_mcp == None:
@@ -253,7 +237,7 @@ if __name__ == "__main__":
     inference_engine = os.environ.get("INFERENCE_ENGINE", "ollama").lower()
     
     if inference_engine == "groq":
-        rigel = RigelGroq(model_name="llama-3.3-70b-versatile", mcp_endpoint=default_mcp)
+        rigel = RigelGroq(model_name="openai/gpt-oss-120b", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
     else:
         rigel = RigelOllama()

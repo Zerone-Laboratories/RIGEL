@@ -119,7 +119,7 @@ hello_string = "Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]\n"
 default_mcp = MultiServerMCPClient(
             {
                 "rigel tools": {
-                    "url": "http://localhost:8001/sse",
+                    "url": "http://rigel-tools-server:8001/sse",
                     "transport": "sse",
                 }
             },

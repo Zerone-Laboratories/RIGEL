@@ -20,7 +20,7 @@ import os
 import json
 from datetime import datetime
 
-mcp = FastMCP("Rigel Tool", port=8001)
+mcp = FastMCP("Rigel Tool", port=8001, host="0.0.0.0")
 
 
 @mcp.tool()

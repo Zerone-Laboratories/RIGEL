@@ -941,24 +941,8 @@ async def initialize_rigel():
     default_mcp = MultiServerMCPClient(
         {
             "rigel tools": {
-                "url": "http://localhost:8001/sse",
+                "url": "http://rigel-tools-server:8001/sse",
                 "transport": "sse",
-            },
-            "python-toolbox": {
-                "command": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv/bin/python",
-                "args": [
-                    "-m",
-                    "mcp_python_toolbox",
-                    "--workspace",
-                    "/home/zerone/Documents/RIGEL_Data"
-                ],
-                "env": {
-                    "PYTHONPATH": "/home/zerone/Projects/NotMine/mcp_python_toolbox/src",
-                    "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                    "VIRTUAL_ENV": "/home/zerone/Projects/NotMine/mcp_python_toolbox/.venv",
-                    "PYTHONHOME": ""
-                },
-                "transport": "stdio"
             }
         },
     )

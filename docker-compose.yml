@@ -4,8 +4,8 @@ services:
     build: .
     environment:
       - SERVER_TYPE=dbus # Change to 'dbus' to run dbus_server.py
-      - GROQ_API_KEY={} # Ensure this is set in your environment
-      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-ollama} # Default to groq, can be set to 'ollama'
+      - GROQ_API_KEY= # Ensure this is set in your environment
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default to groq, can be set to 'ollama'
       - OLLAMA_USE_GPU=true # Force Ollama to use GPU
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
       - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
@@ -24,6 +24,16 @@ services:
     privileged: true
     cap_add:
       - SYS_ADMIN
+      
+  rigel-tools-server:
+    build: .
+    environment:
+      - RIGEL_ADMIN_KEY=this_is_a_secret_key
+    command: python -m core.mcp.rigel_tools_server
+    ports:
+      - "8001:8001"
+    volumes:
+      - .:/app
 
   rigel-server-gpu:
     extends:
