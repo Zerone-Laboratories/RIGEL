@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gobject-introspection \
     # DBus dependencies
     libdbus-1-dev \
+    dbus \
     # General dependencies
     git \
     curl \

@@ -16,8 +16,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
-from pydbus import SessionBus
+from pydbus import SessionBus, SystemBus
 from gi.repository import GLib
+import os
 from core.rigel import RigelOllama, RigelGroq
 from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer
@@ -215,9 +216,6 @@ if __name__ == "__main__":
     print("Licensed under GNU Affero General Public License v3.0")
     print("This is free software; see the source for copying conditions.")
     print("")
-    print("Select Required Backend :")
-    backend_choice = int(input("Select '1' for GROQ and '2' for OLLAMA "))
-
     default_mcp = None
     # How to add an MCP server
     default_mcp = MultiServerMCPClient(
@@ -250,7 +248,11 @@ if __name__ == "__main__":
               You can start it by typing
               python core/mcp/rigel_tools_server.py
               """)
-    if backend_choice == 1:
+    
+    # Get backend from environment variable
+    inference_engine = os.environ.get("INFERENCE_ENGINE", "ollama").lower()
+    
+    if inference_engine == "groq":
         rigel = RigelGroq(model_name="llama-3.3-70b-versatile", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
     else:
@@ -271,7 +273,22 @@ if __name__ == "__main__":
         print(f"Warning: Failed to initialize voice components: {e}")
         print("Voice features may not be available")
 
-    bus = SessionBus()
+    # Determine which bus to use - try SessionBus first, fall back to SystemBus in Docker environments
+    try:
+        print("Attempting to connect to Session Bus...")
+        bus = SessionBus()
+        print("Successfully connected to Session Bus")
+    except Exception as e:
+        print(f"Session Bus connection failed: {e}")
+        print("Attempting to connect to System Bus instead...")
+        try:
+            bus = SystemBus()
+            print("Successfully connected to System Bus")
+        except Exception as e:
+            print(f"System Bus connection failed too: {e}")
+            print("Error: Could not connect to any D-Bus. Ensure D-Bus is properly configured.")
+            exit(1)
+            
     bus.publish("com.rigel.RigelService", RigelServer())
 
     print("RIGEL D-Bus service is running...")
