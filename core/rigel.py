@@ -171,7 +171,8 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             r"The task is done\.",
             r"Please provide more information\.",
             r"The task is impossible\.",
-            r"Let me know what you'd like to do next\."
+            r"Let me know what you'd like to do next\.",
+            r"Let me know\."
         ]
         self.continuity_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.continuity_breakers]
         # runtime memory adapter
@@ -646,6 +647,18 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         if model:
             self.llm.model = model
         return super().inference(messages)
+    
+class RigelAutoSwap(Rigel):
+    def __init__(self, model_name: str = "llama-swap-model", base_url: str = "http://localhost:12432", temp: float = 0.7):
+        super().__init__(model_name=model_name, chatmode="llama-swap")
+        self.base_url = base_url
+        self.llm = ChatOpenAI(
+            model=self.model,
+            base_url=f"{self.base_url}/v1",
+            api_key="not-needed",
+            temperature=temp,
+        )
+        syslog.info(f"Initialized RIGEL with llama.cpp server at {self.base_url}")
 
 
 # Some Demos

@@ -240,7 +240,7 @@ if __name__ == "__main__":
         rigel = RigelGroq(model_name="openai/gpt-oss-120b", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
     else:
-        rigel = RigelOllama()
+        rigel = RigelOllama(model_name="qwen3:0.6b")
         print("RIGEL initialized with OLLAMA backend")
 
 
