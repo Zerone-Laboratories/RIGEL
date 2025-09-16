@@ -19,6 +19,7 @@ import subprocess
 import os
 import json
 from datetime import datetime
+from .cal_gpa import NSBMGPACalculator
 
 mcp = FastMCP("Rigel Tool", port=8001)
 
@@ -132,6 +133,119 @@ def get_system_info() -> str:
         return json.dumps(info, indent=2)
     except Exception as e:
         return f"Error getting system info: {str(e)}"
+
+@mcp.tool()
+def calculate_nsbm_gpa(
+    course_names: List[str], 
+    credits: List[float], 
+    grades: List[str]
+) -> str:
+    """Calculate GPA for NSBM students.
+    
+    Args:
+        course_names: List of course names
+        credits: List of credit hours for each course
+        grades: List of grades (NSBM letter grades A+, A, A-, B+, B, B-, C+, C, C-, D+, D, F or percentages 0-100)
+        
+    Returns:
+        Detailed NSBM GPA calculation results as JSON string
+    """
+    try:
+        calculator = NSBMGPACalculator()
+        
+        # Validate input lengths
+        if not (len(course_names) == len(credits) == len(grades)):
+            return json.dumps({
+                "error": "All input lists must have the same length",
+                "course_count": len(course_names),
+                "credits_count": len(credits),
+                "grades_count": len(grades)
+            })
+        
+        # Add courses
+        for name, credit, grade in zip(course_names, credits, grades):
+            success = calculator.add_course(name, credit, grade)
+            if not success:
+                return json.dumps({
+                    "error": f"Failed to add course: {name} with grade {grade}",
+                    "suggestion": "Use NSBM letter grades (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, F) or percentages (0-100)"
+                })
+        
+        # Calculate and return results
+        result = calculator.calculate_gpa()
+        suggestions = calculator.get_nsbm_improvement_suggestions()
+        result["improvement_suggestions"] = suggestions
+        
+        return json.dumps(result, indent=2)
+        
+    except Exception as e:
+        return json.dumps({
+            "error": f"NSBM GPA calculation failed: {str(e)}",
+            "status": "error"
+        })
+
+@mcp.tool()
+def calculate_simple_nsbm_gpa(credits: List[float], grade_points: List[float]) -> str:
+    """Simple NSBM GPA calculation using credit hours and grade points.
+    
+    Args:
+        credits: List of credit hours
+        grade_points: List of grade point values (0.0-4.0 on NSBM scale)
+        
+    Returns:
+        NSBM GPA calculation result as JSON string
+    """
+    try:
+        calculator = NSBMGPACalculator()
+        
+        if len(credits) != len(grade_points):
+            return json.dumps({
+                "error": "Credits and grade points lists must have same length",
+                "gpa": -1.0
+            })
+        
+        # Add courses with simple format
+        for i, (credit, gp) in enumerate(zip(credits, grade_points)):
+            calculator.add_course(f"Course_{i+1}", credit, gp)
+        
+        result = calculator.calculate_gpa()
+        return json.dumps({
+            "gpa": result["gpa"],
+            "total_credits": result["total_credits"],
+            "academic_standing": result["academic_standing"],
+            "grading_system": "NSBM University",
+            "status": "success"
+        })
+        
+    except Exception as e:
+        return json.dumps({
+            "error": str(e),
+            "gpa": -1.0,
+            "status": "error"
+        })
+
+@mcp.tool()
+def get_nsbm_grade_info(grade: str) -> str:
+    """Get information about NSBM grade conversion and classification.
+    
+    Args:
+        grade: The NSBM grade to get information about
+        
+    Returns:
+        NSBM grade information as JSON string
+    """
+    try:
+        calculator = NSBMGPACalculator()
+        grade_info = calculator.get_nsbm_grade_info(grade)
+        
+        return json.dumps(grade_info, indent=2)
+            
+    except Exception as e:
+        return json.dumps({
+            "error": f"NSBM grade conversion failed: {str(e)}",
+            "status": "error"
+        })
+
 
 if __name__ == "__main__":
     mcp.run(transport="sse")

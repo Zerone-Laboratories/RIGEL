@@ -19,7 +19,7 @@
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Depends, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import asyncio
 import tempfile
 import os
@@ -35,6 +35,7 @@ from contextlib import asynccontextmanager
 from core.rigel import RigelOllama, RigelGroq
 from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer
+from core.mcp.cal_gpa import NSBMGPACalculator
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 # Initialize logging
@@ -427,6 +428,37 @@ class InferenceEngineRequest(BaseModel):
 
 class InferenceEngineResponse(BaseModel):
     engine: str
+    status: str
+
+# NSBM GPA Calculation Models
+class NSBMGPACalculationRequest(BaseModel):
+    course_names: List[str]
+    credits: List[float]
+    grades: List[str]
+
+class SimpleNSBMGPARequest(BaseModel):
+    credits: List[float]
+    grade_points: List[float]
+
+class NSBMGradeInfoRequest(BaseModel):
+    grade: str
+
+class NSBMGPAResponse(BaseModel):
+    gpa: float
+    total_credits: float
+    total_courses: int
+    academic_standing: str
+    grade_distribution: Dict[str, int]
+    grading_system: str
+    status: str
+    improvement_suggestions: Optional[List[str]] = None
+    courses: Optional[List[Dict]] = None
+
+class NSBMGradeInfoResponse(BaseModel):
+    input_grade: str
+    gpa_points: float
+    classification: str
+    percentage_range: str
     status: str
 
 # Routes
@@ -871,6 +903,210 @@ async def get_inference_engine(_: bool = Depends(require_admin_key)):
         engine=inference_engine,
         status="Current engine"
     )
+
+# NSBM GPA Calculation Endpoints
+@app.post("/nsbm/gpa/calculate", response_model=NSBMGPAResponse)
+async def calculate_nsbm_gpa(
+    request: NSBMGPACalculationRequest,
+    tenant_info: dict = Depends(require_api_key)
+):
+    """Calculate GPA for NSBM students with detailed analysis"""
+    start_time = time.time()
+    
+    try:
+        calculator = NSBMGPACalculator()
+        
+        # Validate input lengths
+        if not (len(request.course_names) == len(request.credits) == len(request.grades)):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "All input lists must have the same length",
+                    "course_count": len(request.course_names),
+                    "credits_count": len(request.credits),
+                    "grades_count": len(request.grades)
+                }
+            )
+        
+        # Add courses
+        for name, credit, grade in zip(request.course_names, request.credits, request.grades):
+            success = calculator.add_course(name, credit, grade)
+            if not success:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to add course: {name} with grade {grade}. Use NSBM letter grades (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, F) or percentages (0-100)."
+                )
+        
+        # Calculate results
+        result = calculator.calculate_gpa()
+        suggestions = calculator.get_nsbm_improvement_suggestions()
+        
+        if result['status'] == 'error':
+            raise HTTPException(status_code=400, detail=result['message'])
+        
+        # Log usage
+        duration_ms = int((time.time() - start_time) * 1000)
+        record_usage(tenant_info['tenant_id'], "nsbm_gpa_calculate", 0, duration_ms)
+        
+        return NSBMGPAResponse(
+            gpa=result['gpa'],
+            total_credits=result['total_credits'],
+            total_courses=result['total_courses'],
+            academic_standing=result['academic_standing'],
+            grade_distribution=result['grade_distribution'],
+            grading_system=result['grading_system'],
+            status=result['status'],
+            improvement_suggestions=suggestions,
+            courses=result['courses']
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        syslog.error(f"Error calculating NSBM GPA: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"NSBM GPA calculation failed: {str(e)}")
+
+@app.post("/nsbm/gpa/simple", response_model=Dict[str, Any])
+async def calculate_simple_nsbm_gpa(
+    request: SimpleNSBMGPARequest,
+    tenant_info: dict = Depends(require_api_key)
+):
+    """Simple NSBM GPA calculation using credit hours and grade points"""
+    start_time = time.time()
+    
+    try:
+        calculator = NSBMGPACalculator()
+        
+        if len(request.credits) != len(request.grade_points):
+            raise HTTPException(
+                status_code=400,
+                detail="Credits and grade points lists must have same length"
+            )
+        
+        # Add courses with simple format
+        for i, (credit, gp) in enumerate(zip(request.credits, request.grade_points)):
+            if not (0 <= gp <= 4.0):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Grade point {gp} for course {i+1} must be between 0.0 and 4.0"
+                )
+            calculator.add_course(f"Course_{i+1}", credit, gp)
+        
+        result = calculator.calculate_gpa()
+        
+        # Log usage
+        duration_ms = int((time.time() - start_time) * 1000)
+        record_usage(tenant_info['tenant_id'], "nsbm_gpa_simple", 0, duration_ms)
+        
+        return {
+            "gpa": result["gpa"],
+            "total_credits": result["total_credits"],
+            "academic_standing": result["academic_standing"],
+            "grading_system": "NSBM University",
+            "status": "success"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        syslog.error(f"Error calculating simple NSBM GPA: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Simple NSBM GPA calculation failed: {str(e)}")
+
+@app.post("/nsbm/gpa/grade-info", response_model=NSBMGradeInfoResponse)
+async def get_nsbm_grade_info(
+    request: NSBMGradeInfoRequest,
+    tenant_info: dict = Depends(require_api_key)
+):
+    """Get detailed information about NSBM grades and classifications"""
+    start_time = time.time()
+    
+    try:
+        calculator = NSBMGPACalculator()
+        grade_info = calculator.get_nsbm_grade_info(request.grade)
+        
+        if grade_info['status'] == 'error':
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "input_grade": request.grade,
+                    "error": grade_info['error'],
+                    "suggestion": "Use NSBM letter grades (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, F) or percentages (0-100)"
+                }
+            )
+        
+        # Log usage
+        duration_ms = int((time.time() - start_time) * 1000)
+        record_usage(tenant_info['tenant_id'], "nsbm_grade_info", 0, duration_ms)
+        
+        return NSBMGradeInfoResponse(
+            input_grade=grade_info['input_grade'],
+            gpa_points=grade_info['gpa_points'],
+            classification=grade_info['classification'],
+            percentage_range=grade_info['percentage_range'],
+            status=grade_info['status']
+        )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        syslog.error(f"Error getting NSBM grade info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"NSBM grade info failed: {str(e)}")
+
+@app.get("/nsbm/gpa/help")
+async def get_nsbm_gpa_help():
+    """Get help information about NSBM GPA calculation features"""
+    return {
+        "title": "NSBM University GPA Calculation API",
+        "description": "Specialized GPA calculation endpoints for NSBM students",
+        "endpoints": {
+            "/nsbm/gpa/calculate": {
+                "method": "POST",
+                "description": "Calculate NSBM GPA with detailed analysis",
+                "parameters": {
+                    "course_names": "List of course names",
+                    "credits": "List of credit hours for each course",
+                    "grades": "List of NSBM grades (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, F) or percentages (0-100)"
+                }
+            },
+            "/nsbm/gpa/simple": {
+                "method": "POST",
+                "description": "Simple NSBM GPA calculation using grade points",
+                "parameters": {
+                    "credits": "List of credit hours",
+                    "grade_points": "List of grade point values (0.0-4.0)"
+                }
+            },
+            "/nsbm/gpa/grade-info": {
+                "method": "POST",
+                "description": "Get detailed NSBM grade information and classification",
+                "parameters": {
+                    "grade": "NSBM grade to analyze"
+                }
+            }
+        },
+        "nsbm_grading_scale": {
+            "A+": {"gpa": 4.0, "percentage": "90-100%", "classification": "First Class Honours"},
+            "A": {"gpa": 4.0, "percentage": "90-100%", "classification": "First Class Honours"},
+            "A-": {"gpa": 3.7, "percentage": "85-89%", "classification": "First Class Honours"},
+            "B+": {"gpa": 3.3, "percentage": "80-84%", "classification": "Second Class Honours - Upper"},
+            "B": {"gpa": 3.0, "percentage": "75-79%", "classification": "Second Class Honours - Lower"},
+            "B-": {"gpa": 2.7, "percentage": "70-74%", "classification": "Second Class Honours - Lower"},
+            "C+": {"gpa": 2.3, "percentage": "65-69%", "classification": "General Pass"},
+            "C": {"gpa": 2.0, "percentage": "60-64%", "classification": "General Pass"},
+            "C-": {"gpa": 1.7, "percentage": "55-59%", "classification": "General Pass"},
+            "D+": {"gpa": 1.3, "percentage": "50-54%", "classification": "General Pass"},
+            "D": {"gpa": 1.0, "percentage": "45-49%", "classification": "General Pass"},
+            "F": {"gpa": 0.0, "percentage": "0-44%", "classification": "Fail"}
+        },
+        "academic_classifications": {
+            "First Class Honours": "GPA 3.7-4.0 - Excellent academic performance",
+            "Second Class Honours - Upper": "GPA 3.3-3.69 - Very good academic performance", 
+            "Second Class Honours - Lower": "GPA 3.0-3.29 - Good academic performance",
+            "General Pass": "GPA 2.0-2.99 - Satisfactory academic performance",
+            "Academic Probation": "GPA 1.0-1.99 - Below standard, improvement required",
+            "Academic Dismissal Risk": "GPA below 1.0 - Serious academic difficulties"
+        }
+    }
 
 # Initialize RIGEL backend
 async def initialize_rigel():
