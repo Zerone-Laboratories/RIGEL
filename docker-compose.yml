@@ -5,8 +5,9 @@ services:
     environment:
       - SERVER_TYPE=web # Change to 'dbus' to run dbus_server.py
       - GROQ_API_KEY={} # Ensure this is set in your environment
-      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-ollama} # Default to groq, can be set to 'ollama'
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default to groq, can be set to 'ollama'
       - OLLAMA_USE_GPU=true # Force Ollama to use GPU
+      - RIGEL_ADMIN_KEY={}
     command: >
       sh -c "if [ \"$$INFERENCE_ENGINE\" = 'ollama' ]; then (nohup ollama serve &) && sleep 5; fi && 
              if [ \"$$SERVER_TYPE\" = 'dbus' ]; then python dbus_server.py; else python web_server.py; fi"
@@ -16,13 +17,13 @@ services:
     volumes:
       - .:/app
       - ollama-models:/root/.ollama # Persist Ollama models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: all
+#              capabilities: [gpu]
 
 volumes:
   ollama-models: # Volume for Ollama models
