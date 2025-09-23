@@ -177,24 +177,100 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.client = mcp_endpoint
 
     def readAndInitializeDatabase(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        rigel_data_dir = os.path.join(current_dir, "rigel_data")
-        pdf_pattern = os.path.join(rigel_data_dir, "*.pdf")
-        pdf_files = glob.glob(pdf_pattern)
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            rigel_data_dir = os.path.join(current_dir, "rigel_data")
 
-        if not pdf_files:
-            syslog.warning(f"No PDF files found in {rigel_data_dir}")
-            return
+            # Make sure the DB directory exists
+            db_dir = os.path.join(os.path.dirname(current_dir), "db")
+            db_chroma_dir = os.path.join(db_dir, "chroma_db")
 
-        self.ragdb = DBConn()
-        for pdf_file in pdf_files:
-            try:
-                self.ragdb.load_data_from_pdf_path(pdf_file)
-                syslog.info(f"Loaded PDF file: {os.path.basename(pdf_file)}")
-            except Exception as e:
-                syslog.error(f"Error loading PDF file {pdf_file}: {str(e)}")
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+                syslog.info(f"Created database directory at {db_dir}")
 
-        syslog.info(f"Database Successfully Initialized with {len(pdf_files)} PDF files!")
+            if not os.path.exists(db_chroma_dir):
+                os.makedirs(db_chroma_dir, exist_ok=True)
+                syslog.info(f"Created ChromaDB directory at {db_chroma_dir}")
+
+            def readAndInitializeDatabase(self):
+                try:
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    rigel_data_dir = os.path.join(current_dir, "rigel_data")
+
+                    # Make sure the DB directory exists
+                    db_dir = os.path.join(os.path.dirname(current_dir), "db")
+                    db_chroma_dir = os.path.join(db_dir, "chroma_db")
+
+                    if not os.path.exists(db_dir):
+                        os.makedirs(db_dir, exist_ok=True)
+                        syslog.info(f"Created database directory at {db_dir}")
+
+                    if not os.path.exists(db_chroma_dir):
+                        os.makedirs(db_chroma_dir, exist_ok=True)
+                        syslog.info(f"Created ChromaDB directory at {db_chroma_dir}")
+
+                    def readAndInitializeDatabase(self):
+                        try:
+                            current_dir = os.path.dirname(os.path.abspath(__file__))
+                            rigel_data_dir = os.path.join(current_dir, "rigel_data")
+
+                            # Make sure the DB directory exists
+                            db_dir = os.path.join(os.path.dirname(current_dir), "db")
+                            db_chroma_dir = os.path.join(db_dir, "chroma_db")
+
+                            if not os.path.exists(db_dir):
+                                os.makedirs(db_dir, exist_ok=True)
+                                syslog.info(f"Created database directory at {db_dir}")
+
+                            if not os.path.exists(db_chroma_dir):
+                                os.makedirs(db_chroma_dir, exist_ok=True)
+                                syslog.info(f"Created ChromaDB directory at {db_chroma_dir}")
+
+                            def readAndInitializeDatabase(self):
+                                try:
+                                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                                    rigel_data_dir = os.path.join(current_dir, "rigel_data")
+
+                                    # Make sure the DB directory exists
+                                    db_dir = os.path.join(os.path.dirname(current_dir), "db")
+                                    db_chroma_dir = os.path.join(db_dir, "chroma_db")
+
+                                    if not os.path.exists(db_dir):
+                                        os.makedirs(db_dir, exist_ok=True)
+                                        syslog.info(f"Created database directory at {db_dir}")
+
+                                    if not os.path.exists(db_chroma_dir):
+                                        os.makedirs(db_chroma_dir, exist_ok=True)
+                                        syslog.info(f"Created ChromaDB directory at {db_chroma_dir}")
+
+                                    pdf_pattern = os.path.join(rigel_data_dir, "*.pdf")
+                                    pdf_files = glob.glob(pdf_pattern)
+
+                                    if not pdf_files:
+                                        syslog.warning(f"No PDF files found in {rigel_data_dir}")
+                                        self.ragdb = None
+                                        return
+
+                                    self.ragdb = DBConn()
+                                    for pdf_file in pdf_files:
+                                        try:
+                                            self.ragdb.load_data_from_pdf_path(pdf_file)
+                                            syslog.info(f"Loaded PDF file: {os.path.basename(pdf_file)}")
+                                        except Exception as e:
+                                            syslog.error(f"Error loading PDF file {pdf_file}: {str(e)}")
+
+                                    syslog.info(f"Database Successfully Initialized with {len(pdf_files)} PDF files!")
+                                except Exception as e:
+                                    syslog.error(f"Error initializing database: {str(e)}")
+                                    self.ragdb = None
+                        except Exception as e:
+                            syslog.error(f"Error initializing database: {str(e)}")
+                            self.ragdb = None
+                except Exception as e:
+                    syslog.error(f"Error initializing database: {str(e)}")
+                    self.ragdb = None
+
 
 
 
@@ -330,6 +406,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             messages: List of messages in format [("role", "content"), ...]
             model: Optional model name override
             thread_id: Thread ID for conversation memory
+            RAG: Whether to use Retrieval Augmented Generation
 
         Returns:
             AIMessage with response content
@@ -339,9 +416,66 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
         syslog.info(f"RAG IS CURRENTLY {RAG}")
         if RAG:
-            data = self.ragdb.run_similar_search(next((msg for role, msg in messages if role == "human"), ""))
-            syslog.info(f"RAG Data Retrieved: {data}")
-            messages.append(("RAG",f"{data}"))
+            try:
+                if self.ragdb is None:
+                    syslog.warning("RAG database not initialized. Initializing now...")
+                    self.readAndInitializeDatabase()
+
+                if self.ragdb is not None:
+                    query = next((msg for role, msg in messages if role == "human"), "")
+                    data = self.ragdb.run_similar_search(query)
+                    syslog.info(f"RAG Data Retrieved: {data}")
+                    messages.append(("RAG", f"{data}"))
+                else:
+                    syslog.warning("RAG database is not available. Continuing without RAG.")
+            except Exception as e:
+                syslog.error(f"Error in RAG processing: {str(e)}. Continuing without RAG.")
+            try:
+                if self.ragdb is None:
+                    syslog.warning("RAG database not initialized. Initializing now...")
+                    self.readAndInitializeDatabase()
+
+                if self.ragdb is not None:
+                    query = next((msg for role, msg in messages if role == "human"), "")
+                    data = self.ragdb.run_similar_search(query)
+                    syslog.info(f"RAG Data Retrieved: {data}")
+                    messages.append(("RAG", f"{data}"))
+                else:
+                    syslog.warning("RAG database is not available. Continuing without RAG.")
+            except Exception as e:
+                syslog.error(f"Error in RAG processing: {str(e)}. Continuing without RAG.")
+            try:
+                if self.ragdb is None:
+                    syslog.warning("RAG database not initialized. Initializing now...")
+                    self.readAndInitializeDatabase()
+
+                if self.ragdb is None:
+                    syslog.error("Failed to initialize RAG database. Continuing without RAG.")
+                else:
+                    query = next((msg for role, msg in messages if role == "human"), "")
+                    data = self.ragdb.run_similar_search(query)
+                    syslog.info(f"RAG Data Retrieved: {data}")
+                    if data:
+                        messages.append(("RAG", f"{data}"))
+            except Exception as e:
+                syslog.error(f"Error using RAG: {str(e)}. Continuing without RAG.")
+            try:
+                if self.ragdb is None:
+                    syslog.warning("RAG database not initialized. Initializing now...")
+                    self.readAndInitializeDatabase()
+
+                if self.ragdb is not None:
+                    query = next((msg for role, msg in messages if role == "human"), "")
+                    data = self.ragdb.run_similar_search(query)
+                    syslog.info(f"RAG Data Retrieved: {data}")
+                    messages.append(("RAG",f"{data}"))
+                else:
+                    syslog.error("Failed to initialize RAG database. Continuing without RAG.")
+            except Exception as e:
+                syslog.error(f"Error using RAG: {str(e)}. Continuing without RAG.")
+            except Exception as e:
+                syslog.error(f"Error during RAG retrieval: {str(e)}")
+                # Continue without RAG if it fails
 
         formatted_messages = []
         for role, content in messages:
@@ -489,7 +623,7 @@ class RigelGroq(Rigel): # RIGEL with groq backend
                 syslog.error(f"Failed to get Groq API key: {e}")
                 syslog.error("When running in Docker, make sure to set GROQ_API_KEY environment variable without quotes")
                 raise RuntimeError("GROQ_API_KEY environment variable is not set and unable to prompt for input")
-        
+
         try:
             self.llm = ChatGroq(model=self.model,
                                 temperature=temp,

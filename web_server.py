@@ -48,7 +48,7 @@ def init_database():
     """Initialize SQLite database for API key management and usage tracking"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # Create tenants table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tenants (
@@ -62,7 +62,7 @@ def init_database():
             daily_quota INTEGER DEFAULT 100
         )
     """)
-    
+
     # Create usage table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usage (
@@ -75,7 +75,7 @@ def init_database():
             FOREIGN KEY (tenant_id) REFERENCES tenants (id)
         )
     """)
-    
+
     # Create rate limiting table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS rate_limits (
@@ -88,7 +88,7 @@ def init_database():
             UNIQUE(tenant_id, endpoint, window_start)
         )
     """)
-    
+
     conn.commit()
     conn.close()
 
@@ -97,50 +97,50 @@ def create_api_key(name: str, plan: str = "free") -> str:
     import secrets
     api_key = f"rigel_{secrets.token_urlsafe(32)}"
     api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     quotas = {
         "free": {"monthly": 1000, "daily": 100},
         "pro": {"monthly": 20000, "daily": 1000},
         "enterprise": {"monthly": 100000, "daily": 5000}
     }
-    
+
     quota = quotas.get(plan, quotas["free"])
-    
+
     cursor.execute("""
         INSERT INTO tenants (name, api_key_hash, plan, monthly_quota, daily_quota)
         VALUES (?, ?, ?, ?, ?)
     """, (name, api_key_hash, plan, quota["monthly"], quota["daily"]))
-    
+
     conn.commit()
     conn.close()
-    
+
     return api_key
 
 def get_tenant_info(api_key: str) -> Optional[Dict[str, Any]]:
     """Get tenant information from API key"""
     if not api_key:
         return None
-        
+
     api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     cursor.execute("""
         SELECT id, name, plan, active, monthly_quota, daily_quota
-        FROM tenants 
+        FROM tenants
         WHERE api_key_hash = ? AND active = 1
     """, (api_key_hash,))
-    
+
     row = cursor.fetchone()
     conn.close()
-    
+
     if not row:
         return None
-        
+
     return {
         "tenant_id": row[0],
         "name": row[1],
@@ -154,43 +154,43 @@ def check_rate_limit(tenant_id: int, endpoint: str) -> bool:
     """Check if tenant has exceeded rate limits"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # Get tenant info
     cursor.execute("SELECT plan FROM tenants WHERE id = ?", (tenant_id,))
     plan_row = cursor.fetchone()
     if not plan_row:
         conn.close()
         return False
-    
+
     plan = plan_row[0]
-    
+
     # Rate limits per plan (requests per minute)
     rate_limits = {
         "free": 10,
         "pro": 60,
         "enterprise": 300
     }
-    
+
     limit = rate_limits.get(plan, 10)
-    
+
     # Check current minute
     current_time = datetime.now()
     window_start = current_time.replace(second=0, microsecond=0)
-    
+
     cursor.execute("""
-        SELECT requests_count FROM rate_limits 
+        SELECT requests_count FROM rate_limits
         WHERE tenant_id = ? AND endpoint = ? AND window_start = ?
     """, (tenant_id, endpoint, window_start))
-    
+
     row = cursor.fetchone()
-    
+
     if row:
         if row[0] >= limit:
             conn.close()
             return False
         # Update count
         cursor.execute("""
-            UPDATE rate_limits 
+            UPDATE rate_limits
             SET requests_count = requests_count + 1
             WHERE tenant_id = ? AND endpoint = ? AND window_start = ?
         """, (tenant_id, endpoint, window_start))
@@ -200,7 +200,7 @@ def check_rate_limit(tenant_id: int, endpoint: str) -> bool:
             INSERT INTO rate_limits (tenant_id, endpoint, requests_count, window_start)
             VALUES (?, ?, 1, ?)
         """, (tenant_id, endpoint, window_start))
-    
+
     conn.commit()
     conn.close()
     return True
@@ -209,47 +209,47 @@ def check_usage_quota(tenant_id: int) -> Dict[str, Any]:
     """Check tenant's usage against their quotas"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # Get tenant quotas
     cursor.execute("""
         SELECT monthly_quota, daily_quota FROM tenants WHERE id = ?
     """, (tenant_id,))
-    
+
     quota_row = cursor.fetchone()
     if not quota_row:
         conn.close()
         return {"allowed": False, "reason": "Invalid tenant"}
-    
+
     monthly_quota, daily_quota = quota_row
-    
+
     # Check monthly usage
     cursor.execute("""
-        SELECT COUNT(*) FROM usage 
+        SELECT COUNT(*) FROM usage
         WHERE tenant_id = ? AND timestamp >= date('now', '-30 days')
     """, (tenant_id,))
     monthly_usage = cursor.fetchone()[0]
-    
+
     # Check daily usage
     cursor.execute("""
-        SELECT COUNT(*) FROM usage 
+        SELECT COUNT(*) FROM usage
         WHERE tenant_id = ? AND date(timestamp) = date('now')
     """, (tenant_id,))
     daily_usage = cursor.fetchone()[0]
-    
+
     conn.close()
-    
+
     if monthly_usage >= monthly_quota:
         return {
-            "allowed": False, 
+            "allowed": False,
             "reason": f"Monthly quota exceeded ({monthly_usage}/{monthly_quota})"
         }
-    
+
     if daily_usage >= daily_quota:
         return {
-            "allowed": False, 
+            "allowed": False,
             "reason": f"Daily quota exceeded ({daily_usage}/{daily_quota})"
         }
-    
+
     return {
         "allowed": True,
         "monthly_usage": monthly_usage,
@@ -262,12 +262,12 @@ def record_usage(tenant_id: int, endpoint: str, tokens: int = 0, duration_ms: in
     """Record API usage for billing and analytics"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     cursor.execute("""
         INSERT INTO usage (tenant_id, endpoint, tokens_estimated, duration_ms)
         VALUES (?, ?, ?, ?)
     """, (tenant_id, endpoint, tokens, duration_ms))
-    
+
     conn.commit()
     conn.close()
 
@@ -276,30 +276,30 @@ async def require_api_key(x_api_key: str = Header(None, alias="X-API-Key")) -> D
     """FastAPI dependency to require and validate API key"""
     if not x_api_key:
         raise HTTPException(
-            status_code=401, 
+            status_code=401,
             detail="Missing API key. Please provide X-API-Key header."
         )
-    
+
     tenant_info = get_tenant_info(x_api_key)
     if not tenant_info:
         raise HTTPException(
-            status_code=403, 
+            status_code=403,
             detail="Invalid or inactive API key."
         )
-    
+
     return tenant_info
 
 async def check_quotas_and_limits(tenant_info: Dict[str, Any], endpoint: str) -> Dict[str, Any]:
     """Check rate limits and usage quotas"""
     tenant_id = tenant_info["tenant_id"]
-    
+
     # Check rate limiting
     if not check_rate_limit(tenant_id, endpoint):
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Please slow down your requests."
         )
-    
+
     # Check usage quotas
     quota_check = check_usage_quota(tenant_id)
     if not quota_check["allowed"]:
@@ -307,7 +307,7 @@ async def check_quotas_and_limits(tenant_info: Dict[str, Any], endpoint: str) ->
             status_code=403,
             detail=f"Usage quota exceeded: {quota_check['reason']}"
         )
-    
+
     return quota_check
 
 # Global variables
@@ -329,19 +329,19 @@ async def lifespan(app: FastAPI):
     # Startup
     print("Initializing database...")
     init_database()
-    
+
     # Create a default API key if none exist
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM tenants")
     tenant_count = cursor.fetchone()[0]
     conn.close()
-    
+
     if tenant_count == 0:
         default_key = create_api_key("Default User", "free")
         print(f"Created default API key: {default_key}")
         print("Save this key securely - it won't be shown again!")
-    
+
     await initialize_rigel()
     print("RIGEL Web Service is running...")
     print("Available endpoints:")
@@ -355,9 +355,9 @@ async def lifespan(app: FastAPI):
     print("  GET  /license-info   - Display license and copyright information")
     print("  POST /admin/create-key - Create new API key (admin only)")
     print("  GET  /admin/usage/{tenant_id} - Get usage statistics (admin only)")
-    
+
     yield
-    
+
     # Shutdown
     print("RIGEL Web Service shutting down...")
 
@@ -466,7 +466,7 @@ class NSBMGradeInfoResponse(BaseModel):
 async def root():
     """Root endpoint with service information - no auth required"""
     global inference_engine
-    
+
     return {
         "service": "RIGEL Web Service",
         "version": "4.0.X",
@@ -476,7 +476,7 @@ async def root():
         "authentication": "API key required for all endpoints except root and license-info",
         "endpoints": [
             "/query",
-            "/query-with-memory", 
+            "/query-with-memory",
             "/query-think",
             "/query-with-tools",
             "/synthesize-text",
@@ -494,27 +494,27 @@ async def root():
 async def query(request: QueryRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
     """Basic inference endpoint"""
     global system_prompt, rigel
-    
+
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "query")
-    
+
     if rigel is None:
         raise HTTPException(status_code=500, detail="RIGEL backend not initialized")
-    
+
     start_time = time.time()
-    
+
     try:
         messages = [
             ("system", f"{system_prompt}"),
             ("human", f"{request.query}")
         ]
         response = rigel.inference(messages=messages)
-        
+
         # Record usage
         duration_ms = int((time.time() - start_time) * 1000)
         tokens_estimated = len(request.query.split()) + len(response.content.split())
         record_usage(tenant_info["tenant_id"], "query", tokens_estimated, duration_ms)
-        
+
         return QueryResponse(response=response.content)
     except Exception as e:
         syslog.error(f"Error in query: {str(e)}")
@@ -524,15 +524,15 @@ async def query(request: QueryRequest, tenant_info: Dict[str, Any] = Depends(req
 async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
     """Inference with conversation memory"""
     global system_prompt, rigel
-    
+
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "query-with-memory")
-    
+
     if rigel is None:
         raise HTTPException(status_code=500, detail="RIGEL backend not initialized")
-    
+
     start_time = time.time()
-    
+
     try:
         syslog.info(f"DEBUG: {request.RAG}")
         messages = [
@@ -549,15 +549,32 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
         else:
             RAG_Stat = False
         syslog.info(f"DEBUG: RAGSTAT = {RAG_Stat}")
-        
-        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=True)
-        syslog.info(response)
-        # Record usage
-        duration_ms = int((time.time() - start_time) * 1000)
-        tokens_estimated = len(request.query.split()) + len(response.content.split())
-        record_usage(tenant_info["tenant_id"], "query-with-memory", tokens_estimated, duration_ms)
-        
-        return QueryResponse(response=response.content)
+
+        try:
+            response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=True)
+            syslog.info(response)
+            # Record usage
+            duration_ms = int((time.time() - start_time) * 1000)
+            tokens_estimated = len(request.query.split()) + len(response.content.split())
+            record_usage(tenant_info["tenant_id"], "query-with-memory", tokens_estimated, duration_ms)
+
+            return QueryResponse(response=response.content)
+        except AttributeError as e:
+            # Handle the case when 'NoneType' object has no attribute 'run_similar_search'
+            if "run_similar_search" in str(e):
+                syslog.error(f"RAG database not properly initialized: {str(e)}")
+                # Fall back to standard inference without RAG
+                fallback_response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=False)
+
+                # Record usage for the fallback
+                duration_ms = int((time.time() - start_time) * 1000)
+                tokens_estimated = len(request.query.split()) + len(fallback_response.content.split())
+                record_usage(tenant_info["tenant_id"], "query-with-memory-fallback", tokens_estimated, duration_ms)
+
+                return QueryResponse(response=fallback_response.content)
+            else:
+                # If it's a different AttributeError, re-raise
+                raise
     except Exception as e:
         syslog.error(f"Error in query with memory: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing query with memory: {str(e)}")
@@ -566,23 +583,23 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
 async def query_think(request: QueryRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
     """Advanced thinking capabilities"""
     global rigel
-    
+
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "query-think")
-    
+
     if rigel is None:
         raise HTTPException(status_code=500, detail="RIGEL backend not initialized")
-    
+
     start_time = time.time()
-    
+
     try:
         response = rigel.think(request.query)
-        
+
         # Record usage (thinking uses more resources, count as 2x tokens)
         duration_ms = int((time.time() - start_time) * 1000)
         tokens_estimated = (len(request.query.split()) + len(response.split())) * 2
         record_usage(tenant_info["tenant_id"], "query-think", tokens_estimated, duration_ms)
-        
+
         return QueryResponse(response=response)
     except Exception as e:
         syslog.error(f"Error in query think: {str(e)}")
@@ -592,34 +609,34 @@ async def query_think(request: QueryRequest, tenant_info: Dict[str, Any] = Depen
 async def query_with_tools(request: QueryRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
     """Inference with MCP tools support"""
     global rigel
-    
+
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "query-with-tools")
-    
+
     if rigel is None:
         raise HTTPException(status_code=500, detail="RIGEL backend not initialized")
-    
+
     syslog.info(f"QueryWithTools called with query: {request.query[:100]}... by tenant {tenant_info['tenant_id']}")
-    
+
     start_time = time.time()
-    
+
     try:
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(_run_async_tools_query, request.query)
             result = future.result(timeout=120)
-        
+
         if hasattr(result, 'content'):
             response_content = result.content
         else:
             response_content = str(result)
-        
+
         # Record usage (tools use more resources, count as 3x tokens)
         duration_ms = int((time.time() - start_time) * 1000)
         tokens_estimated = (len(request.query.split()) + len(response_content.split())) * 3
         record_usage(tenant_info["tenant_id"], "query-with-tools", tokens_estimated, duration_ms)
-            
+
         return QueryResponse(response=response_content)
-        
+
     except concurrent.futures.TimeoutError:
         error_msg = "Query with tools timed out after 2 minutes"
         syslog.error(error_msg)
@@ -643,36 +660,36 @@ def _run_async_tools_query(query):
 async def synthesize_text(request: SynthesizeRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
     """Convert text to speech with specified mode"""
     global synthesizer
-    
+
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "synthesize-text")
-    
+
     start_time = time.time()
-    
+
     try:
         syslog.info(f"SynthesizeText called with mode: {request.mode}, text length: {len(request.text)} by tenant {tenant_info['tenant_id']}")
-        
+
         if synthesizer is None:
             synthesizer = Synthesizer(mode=request.mode)
         else:
             synthesizer.mode = request.mode
-            
+
         def _synthesize():
             synthesizer.synthesize(request.text)
-        
+
         import threading
         synthesis_thread = threading.Thread(target=_synthesize)
         synthesis_thread.daemon = True
         synthesis_thread.start()
-        
+
         # Record usage
         duration_ms = int((time.time() - start_time) * 1000)
         tokens_estimated = len(request.text.split())
         record_usage(tenant_info["tenant_id"], "synthesize-text", tokens_estimated, duration_ms)
-        
+
         result = f"Text synthesis started successfully with mode: {request.mode}"
         return SynthesizeResponse(result=result)
-        
+
     except Exception as e:
         error_msg = f"Error in text synthesis: {str(e)}"
         syslog.error(error_msg)
@@ -686,42 +703,42 @@ async def recognize_audio(
 ):
     """Transcribe audio file to text"""
     global recognizer
-    
+
     # Check quotas and rate limits
     await check_quotas_and_limits(tenant_info, "recognize-audio")
-    
+
     start_time = time.time()
-    
+
     try:
         syslog.info(f"RecognizeAudio called with model: {model} by tenant {tenant_info['tenant_id']}")
-        
+
         # Save uploaded file to temporary location
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
             content = await audio_file.read()
             tmp_file.write(content)
             tmp_file_path = tmp_file.name
-        
+
         try:
             if recognizer is None:
                 recognizer = Recognizer(model=model)
             elif hasattr(recognizer, 'model_name') and recognizer.model_name != model:
                 recognizer = Recognizer(model=model)
-                
+
             transcription = recognizer.transcribe(tmp_file_path)
             syslog.info(f"Transcription completed: {transcription[:100]}...")
-            
+
             # Record usage
             duration_ms = int((time.time() - start_time) * 1000)
             tokens_estimated = len(transcription.split()) if transcription else 0
             record_usage(tenant_info["tenant_id"], "recognize-audio", tokens_estimated, duration_ms)
-            
+
             return RecognizeResponse(transcription=transcription)
-            
+
         finally:
             # Clean up temporary file
             if os.path.exists(tmp_file_path):
                 os.unlink(tmp_file_path)
-            
+
     except Exception as e:
         error_msg = f"Error in audio recognition: {str(e)}"
         syslog.error(error_msg)
@@ -760,14 +777,14 @@ async def create_new_api_key(
     """Create a new API key for a tenant"""
     try:
         api_key = create_api_key(request.name, request.plan)
-        
+
         # Get the tenant info to return the ID
         tenant_info = get_tenant_info(api_key)
         if not tenant_info:
             raise HTTPException(status_code=500, detail="Failed to create API key")
-        
+
         syslog.info(f"Created new API key for {request.name} with plan {request.plan}")
-        
+
         return CreateKeyResponse(
             api_key=api_key,
             tenant_id=tenant_info["tenant_id"],
@@ -786,39 +803,39 @@ async def get_usage_stats(
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
+
         # Get tenant info
         cursor.execute("""
             SELECT name, plan, monthly_quota, daily_quota FROM tenants WHERE id = ?
         """, (tenant_id,))
-        
+
         tenant_row = cursor.fetchone()
         if not tenant_row:
             conn.close()
             raise HTTPException(status_code=404, detail="Tenant not found")
-        
+
         name, plan, monthly_quota, daily_quota = tenant_row
-        
+
         # Get usage statistics
         cursor.execute("""
-            SELECT COUNT(*) FROM usage 
+            SELECT COUNT(*) FROM usage
             WHERE tenant_id = ? AND timestamp >= date('now', '-30 days')
         """, (tenant_id,))
         monthly_usage = cursor.fetchone()[0]
-        
+
         cursor.execute("""
-            SELECT COUNT(*) FROM usage 
+            SELECT COUNT(*) FROM usage
             WHERE tenant_id = ? AND date(timestamp) = date('now')
         """, (tenant_id,))
         daily_usage = cursor.fetchone()[0]
-        
+
         cursor.execute("""
             SELECT COUNT(*) FROM usage WHERE tenant_id = ?
         """, (tenant_id,))
         total_requests = cursor.fetchone()[0]
-        
+
         conn.close()
-        
+
         return UsageStatsResponse(
             tenant_id=tenant_id,
             name=name,
@@ -829,7 +846,7 @@ async def get_usage_stats(
             daily_quota=daily_quota,
             total_requests=total_requests
         )
-        
+
     except Exception as e:
         syslog.error(f"Error getting usage stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting usage stats: {str(e)}")
@@ -840,11 +857,11 @@ async def list_tenants(_: bool = Depends(require_admin_key)):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
+
         cursor.execute("""
             SELECT id, name, plan, active, created_at FROM tenants ORDER BY created_at DESC
         """)
-        
+
         tenants = []
         for row in cursor.fetchall():
             tenants.append({
@@ -854,10 +871,10 @@ async def list_tenants(_: bool = Depends(require_admin_key)):
                 "active": bool(row[3]),
                 "created_at": row[4]
             })
-        
+
         conn.close()
         return {"tenants": tenants}
-        
+
     except Exception as e:
         syslog.error(f"Error listing tenants: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error listing tenants: {str(e)}")
@@ -869,21 +886,21 @@ async def switch_inference_engine(
 ):
     """Switch the inference engine between GROQ and OLLAMA - admin only"""
     global inference_engine, rigel
-    
+
     try:
         engine = request.engine.lower()
         if engine not in ["groq", "ollama"]:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Invalid engine type. Must be 'groq' or 'ollama'."
             )
-        
+
         # Only reinitialize if the engine is changing
         if engine != inference_engine:
             inference_engine = engine
             await initialize_rigel()
             syslog.info(f"Switched inference engine to {inference_engine}")
-        
+
         return InferenceEngineResponse(
             engine=inference_engine,
             status="Engine switched successfully"
@@ -898,7 +915,7 @@ async def switch_inference_engine(
 async def get_inference_engine(_: bool = Depends(require_admin_key)):
     """Get the current inference engine - admin only"""
     global inference_engine
-    
+
     return InferenceEngineResponse(
         engine=inference_engine,
         status="Current engine"
@@ -912,10 +929,10 @@ async def calculate_nsbm_gpa(
 ):
     """Calculate GPA for NSBM students with detailed analysis"""
     start_time = time.time()
-    
+
     try:
         calculator = NSBMGPACalculator()
-        
+
         # Validate input lengths
         if not (len(request.course_names) == len(request.credits) == len(request.grades)):
             raise HTTPException(
@@ -927,7 +944,7 @@ async def calculate_nsbm_gpa(
                     "grades_count": len(request.grades)
                 }
             )
-        
+
         # Add courses
         for name, credit, grade in zip(request.course_names, request.credits, request.grades):
             success = calculator.add_course(name, credit, grade)
@@ -936,18 +953,18 @@ async def calculate_nsbm_gpa(
                     status_code=400,
                     detail=f"Failed to add course: {name} with grade {grade}. Use NSBM letter grades (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, F) or percentages (0-100)."
                 )
-        
+
         # Calculate results
         result = calculator.calculate_gpa()
         suggestions = calculator.get_nsbm_improvement_suggestions()
-        
+
         if result['status'] == 'error':
             raise HTTPException(status_code=400, detail=result['message'])
-        
+
         # Log usage
         duration_ms = int((time.time() - start_time) * 1000)
         record_usage(tenant_info['tenant_id'], "nsbm_gpa_calculate", 0, duration_ms)
-        
+
         return NSBMGPAResponse(
             gpa=result['gpa'],
             total_credits=result['total_credits'],
@@ -959,7 +976,7 @@ async def calculate_nsbm_gpa(
             improvement_suggestions=suggestions,
             courses=result['courses']
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -973,16 +990,16 @@ async def calculate_simple_nsbm_gpa(
 ):
     """Simple NSBM GPA calculation using credit hours and grade points"""
     start_time = time.time()
-    
+
     try:
         calculator = NSBMGPACalculator()
-        
+
         if len(request.credits) != len(request.grade_points):
             raise HTTPException(
                 status_code=400,
                 detail="Credits and grade points lists must have same length"
             )
-        
+
         # Add courses with simple format
         for i, (credit, gp) in enumerate(zip(request.credits, request.grade_points)):
             if not (0 <= gp <= 4.0):
@@ -991,13 +1008,13 @@ async def calculate_simple_nsbm_gpa(
                     detail=f"Grade point {gp} for course {i+1} must be between 0.0 and 4.0"
                 )
             calculator.add_course(f"Course_{i+1}", credit, gp)
-        
+
         result = calculator.calculate_gpa()
-        
+
         # Log usage
         duration_ms = int((time.time() - start_time) * 1000)
         record_usage(tenant_info['tenant_id'], "nsbm_gpa_simple", 0, duration_ms)
-        
+
         return {
             "gpa": result["gpa"],
             "total_credits": result["total_credits"],
@@ -1005,7 +1022,7 @@ async def calculate_simple_nsbm_gpa(
             "grading_system": "NSBM University",
             "status": "success"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1019,11 +1036,11 @@ async def get_nsbm_grade_info(
 ):
     """Get detailed information about NSBM grades and classifications"""
     start_time = time.time()
-    
+
     try:
         calculator = NSBMGPACalculator()
         grade_info = calculator.get_nsbm_grade_info(request.grade)
-        
+
         if grade_info['status'] == 'error':
             raise HTTPException(
                 status_code=400,
@@ -1033,11 +1050,11 @@ async def get_nsbm_grade_info(
                     "suggestion": "Use NSBM letter grades (A+, A, A-, B+, B, B-, C+, C, C-, D+, D, F) or percentages (0-100)"
                 }
             )
-        
+
         # Log usage
         duration_ms = int((time.time() - start_time) * 1000)
         record_usage(tenant_info['tenant_id'], "nsbm_grade_info", 0, duration_ms)
-        
+
         return NSBMGradeInfoResponse(
             input_grade=grade_info['input_grade'],
             gpa_points=grade_info['gpa_points'],
@@ -1045,7 +1062,7 @@ async def get_nsbm_grade_info(
             percentage_range=grade_info['percentage_range'],
             status=grade_info['status']
         )
-            
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1100,7 +1117,7 @@ async def get_nsbm_gpa_help():
         },
         "academic_classifications": {
             "First Class Honours": "GPA 3.7-4.0 - Excellent academic performance",
-            "Second Class Honours - Upper": "GPA 3.3-3.69 - Very good academic performance", 
+            "Second Class Honours - Upper": "GPA 3.3-3.69 - Very good academic performance",
             "Second Class Honours - Lower": "GPA 3.0-3.29 - Good academic performance",
             "General Pass": "GPA 2.0-2.99 - Satisfactory academic performance",
             "Academic Probation": "GPA 1.0-1.99 - Below standard, improvement required",
@@ -1112,13 +1129,13 @@ async def get_nsbm_gpa_help():
 async def initialize_rigel():
     """Initialize RIGEL backend and voice components"""
     global rigel, synthesizer, recognizer, inference_engine
-    
+
     print("RIGEL Web Service")
     print("Copyright (C) 2025 Zerone Laboratories")
     print("Licensed under GNU Affero General Public License v3.0")
     print("This is free software; see the source for copying conditions.")
     print("")
-    
+
     # Initialize MCP client
     default_mcp = MultiServerMCPClient(
         {
@@ -1144,14 +1161,14 @@ async def initialize_rigel():
             }
         },
     )
-    
+
     if inference_engine == "ollama":
         # Check if Ollama is running and start it if not
         try:
             import requests
             import subprocess
             import time
-            
+
             # Try to connect to Ollama API
             try:
                 response = requests.get("http://localhost:11434/api/version", timeout=2)
@@ -1161,7 +1178,7 @@ async def initialize_rigel():
                 try:
                     # Start Ollama in the background
                     subprocess.Popen(["ollama", "serve"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    
+
                     # Wait for Ollama to start (with timeout)
                     start_time = time.time()
                     while time.time() - start_time < 30:  # 30 second timeout
@@ -1178,14 +1195,14 @@ async def initialize_rigel():
                 except Exception as e:
                     print(f"Error starting Ollama: {e}")
                     print("Will attempt to continue, but RIGEL may not function correctly with Ollama backend")
-                
+
             # Check if the required model is available
             model_name = "llama3.2"
             try:
                 models_response = requests.get("http://localhost:11434/api/tags", timeout=5)
                 models = models_response.json().get('models', [])
                 model_exists = any(model['name'] == model_name for model in models)
-                
+
                 if not model_exists:
                     print(f"Model {model_name} not found. Attempting to pull it (this may take some time)...")
                     # This is non-blocking to avoid hanging the server initialization
@@ -1197,15 +1214,32 @@ async def initialize_rigel():
                 print(f"Error checking/pulling Ollama model: {e}")
         except Exception as e:
             print(f"Error during Ollama setup: {e}")
-        
+
         rigel = RigelOllama(model_name="llama3.2", mcp_endpoint=default_mcp)
         print("RIGEL initialized with OLLAMA backend")
         print("Initializing RIGEL Vector DB...")
-        rigel.readAndInitializeDatabase()
+
+        try:
+            # Create db directory if it doesn't exist
+            db_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "db")
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+                print(f"Created database directory at {db_dir}")
+
+            db_chroma_dir = os.path.join(db_dir, "chroma_db")
+            if not os.path.exists(db_chroma_dir):
+                os.makedirs(db_chroma_dir, exist_ok=True)
+                print(f"Created ChromaDB directory at {db_chroma_dir}")
+
+            rigel.readAndInitializeDatabase()
+        except Exception as e:
+            print(f"Warning: RAG database initialization failed: {e}")
+            syslog.warning(f"RAG database initialization failed: {e}")
+            print("Continuing without RAG capabilities")
     else:  # Default to GROQ
         rigel = RigelGroq(model_name="", mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
-    
+
     print("Initializing voice synthesis and recognition...")
     try:
         synthesizer = Synthesizer(mode="chunk")
