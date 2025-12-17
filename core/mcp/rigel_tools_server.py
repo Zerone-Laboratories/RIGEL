@@ -52,135 +52,6 @@ def current_time() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def read_python_docs(topic: str, module: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Read Python documentation for a specific topic or module.
-    
-    Args:
-        topic: The topic to search for (e.g., 'list', 'dict', 'file operations', 'regex')
-        module: Optional specific module to focus on (e.g., 'os', 'sys', 'json', 'requests')
-    
-    Returns:
-        Dictionary containing documentation content and relevant examples
-    """
-    try:
-        # First try to get help from the Python interpreter
-        if module:
-            try:
-                help_command = f"python3 -c \"import {module}; help({module})\""
-                if topic and topic != module:
-                    help_command = f"python3 -c \"import {module}; help({module}.{topic})\""
-            except:
-                help_command = f"python3 -c \"help('{topic}')\""
-        else:
-            help_command = f"python3 -c \"help('{topic}')\""
-        
-        result = subprocess.run(
-            help_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        local_docs = result.stdout if result.returncode == 0 else ""
-        
-        # Also try to fetch from online Python documentation
-        online_docs = ""
-        try:
-            if module:
-                url = f"https://docs.python.org/3/library/{module}.html"
-            else:
-                # Search the general Python documentation
-                search_url = f"https://docs.python.org/3/search.html?q={topic}"
-                url = f"https://docs.python.org/3/tutorial/index.html"
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            
-            request = Request(url, headers=headers)
-            with urlopen(request, timeout=10) as response:
-                content = response.read().decode('utf-8')
-                # Extract relevant text content (basic HTML parsing)
-                # Remove HTML tags for basic text extraction
-                text_content = re.sub(r'<[^>]+>', '', content)
-                # Get relevant sections
-                lines = text_content.split('\n')
-                relevant_lines = []
-                for i, line in enumerate(lines):
-                    if topic.lower() in line.lower():
-                        # Include context around the match
-                        start = max(0, i-3)
-                        end = min(len(lines), i+10)
-                        relevant_lines.extend(lines[start:end])
-                        relevant_lines.append("---")
-                
-                online_docs = '\n'.join(relevant_lines[:1000])  # Limit size
-        except Exception as e:
-            online_docs = f"Could not fetch online docs: {str(e)}"
-        
-        # Try to provide practical examples
-        examples = ""
-        if OS_TOOLS_AVAILABLE:
-            example_code = f"""
-# Quick example for {topic}
-try:
-    print("=== {topic} Examples ===")
-"""
-            if module:
-                example_code += f"    import {module}\n"
-                example_code += f"    print(dir({module}))\n"
-            
-            if topic in ['list', 'dict', 'string', 'int', 'float']:
-                example_code += f"""
-    # Basic {topic} operations
-    example = {topic}()
-    print(f"Type: {{type(example)}}")
-    print(f"Methods: {{[m for m in dir(example) if not m.startswith('_')][:10]}}")
-"""
-            
-            example_code += """
-except Exception as e:
-    print(f"Error: {e}")
-"""
-            
-            try:
-                example_result = os_tools.create_and_execute_program(
-                    content=example_code,
-                    timeout=10,
-                    cleanup=True
-                )
-                if example_result["success"]:
-                    examples = example_result["stdout"]
-            except:
-                pass
-        
-        return {
-            "success": True,
-            "topic": topic,
-            "module": module,
-            "local_help": local_docs[:2000],  # Limit size
-            "online_docs": online_docs[:1000],  # Limit size
-            "examples": examples,
-            "suggestions": [
-                f"Try: help({topic})" if not module else f"Try: help({module}.{topic})",
-                f"Check: https://docs.python.org/3/library/{module}.html" if module else f"Search: https://docs.python.org/3/search.html?q={topic}",
-                "Use dir() to explore object attributes",
-                "Check __doc__ attribute for docstrings"
-            ]
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "topic": topic,
-            "module": module
-        }
-
-
-@mcp.tool()
 def read_linux_docs(command: str, section: Optional[str] = None) -> Dict[str, Any]:
     """
     Read Linux/Unix documentation using man pages and other sources.
@@ -301,189 +172,6 @@ def read_linux_docs(command: str, section: Optional[str] = None) -> Dict[str, An
             "error": str(e),
             "command": command,
             "section": section
-        }
-
-
-@mcp.tool()
-def read_ubuntu_docs(topic: str, version: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Read Ubuntu-specific documentation and information.
-    
-    Args:
-        topic: The topic to search for (e.g., 'apt', 'systemd', 'networking', 'security')
-        version: Optional Ubuntu version (e.g., '22.04', '20.04')
-    
-    Returns:
-        Dictionary containing Ubuntu documentation and system information
-    """
-    try:
-        # Get Ubuntu version info
-        version_info = ""
-        try:
-            lsb_result = subprocess.run(
-                "lsb_release -a",
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if lsb_result.returncode == 0:
-                version_info = lsb_result.stdout
-        except:
-            pass
-        
-        # Try to get relevant apt information if topic is package-related
-        apt_info = ""
-        if topic in ['apt', 'package', 'install', 'update']:
-            try:
-                apt_commands = [
-                    "apt list --installed | head -5",
-                    "apt list --upgradable | head -5",
-                    "apt-cache policy"
-                ]
-                
-                apt_results = []
-                for cmd in apt_commands:
-                    result = subprocess.run(
-                        cmd,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    if result.returncode == 0:
-                        apt_results.append(f"$ {cmd}\n{result.stdout[:300]}")
-                
-                apt_info = "\n\n".join(apt_results)
-            except:
-                pass
-        
-        # Try to get service information if topic is service-related
-        service_info = ""
-        if topic in ['systemd', 'service', 'daemon', 'startup']:
-            try:
-                service_commands = [
-                    "systemctl list-units --type=service --state=running | head -10",
-                    "systemctl list-unit-files --type=service --state=enabled | head -10"
-                ]
-                
-                service_results = []
-                for cmd in service_commands:
-                    result = subprocess.run(
-                        cmd,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    if result.returncode == 0:
-                        service_results.append(f"$ {cmd}\n{result.stdout[:400]}")
-                
-                service_info = "\n\n".join(service_results)
-            except:
-                pass
-        
-        # Try to get network information if topic is network-related
-        network_info = ""
-        if topic in ['network', 'networking', 'ip', 'interface']:
-            try:
-                network_commands = [
-                    "ip addr show | head -20",
-                    "ip route show | head -10",
-                    "ss -tuln | head -10"
-                ]
-                
-                network_results = []
-                for cmd in network_commands:
-                    result = subprocess.run(
-                        cmd,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    if result.returncode == 0:
-                        network_results.append(f"$ {cmd}\n{result.stdout[:300]}")
-                
-                network_info = "\n\n".join(network_results)
-            except:
-                pass
-        
-        # Get general system information
-        system_info = ""
-        if OS_TOOLS_AVAILABLE:
-            sys_result = os_tools.get_detailed_system_info()
-            if sys_result["success"]:
-                system_info = json.dumps(sys_result["info"], indent=2)
-        
-        # Try to find relevant configuration files
-        config_info = ""
-        config_locations = {
-            'apt': ['/etc/apt/sources.list', '/etc/apt/sources.list.d/'],
-            'network': ['/etc/netplan/', '/etc/network/interfaces'],
-            'systemd': ['/etc/systemd/system/', '/etc/systemd/user/'],
-            'security': ['/etc/security/', '/etc/sudoers'],
-            'ssh': ['/etc/ssh/sshd_config'],
-            'cron': ['/etc/cron.d/', '/etc/crontab']
-        }
-        
-        if topic.lower() in config_locations:
-            config_files = config_locations[topic.lower()]
-            config_results = []
-            
-            for config_path in config_files:
-                try:
-                    if os.path.isfile(config_path):
-                        result = subprocess.run(
-                            f"head -20 {config_path}",
-                            shell=True,
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-                        if result.returncode == 0:
-                            config_results.append(f"=== {config_path} ===\n{result.stdout}")
-                    elif os.path.isdir(config_path):
-                        result = subprocess.run(
-                            f"ls -la {config_path}",
-                            shell=True,
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-                        if result.returncode == 0:
-                            config_results.append(f"=== {config_path} contents ===\n{result.stdout}")
-                except:
-                    pass
-            
-            config_info = "\n\n".join(config_results)
-        
-        return {
-            "success": True,
-            "topic": topic,
-            "ubuntu_version": version or "current system",
-            "version_info": version_info,
-            "apt_info": apt_info,
-            "service_info": service_info,
-            "network_info": network_info,
-            "system_info": system_info[:1000] if system_info else "",
-            "config_info": config_info[:1500] if config_info else "",
-            "suggestions": [
-                f"Check Ubuntu docs: https://help.ubuntu.com/",
-                f"Try: man {topic}",
-                f"Search packages: apt search {topic}",
-                f"Check logs: sudo journalctl -u {topic}" if topic not in ['apt', 'package'] else "Check logs: sudo apt log",
-                "Use 'ubuntu-bug' to report issues",
-                "Check /usr/share/doc/ for package documentation"
-            ]
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "topic": topic,
-            "version": version
         }
 
 
@@ -716,434 +404,870 @@ def _parse_google_results(html_content: str, max_results: int) -> List[Dict[str,
 
 
 @mcp.tool()
-def fetch_webpage_content(url: str, max_length: int = 2000) -> Dict[str, Any]:
+def create_qt_ui_component(
+    component_type: str,
+    properties: Optional[Dict[str, Any]] = None,
+    layout_type: Optional[str] = None,
+    parent_window: bool = False,
+    file_path: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    Fetch and extract text content from a webpage.
+    Create Python Qt UI components with comprehensive functionality.
     
     Args:
-        url: The URL to fetch content from
-        max_length: Maximum length of content to return (default: 2000)
+        component_type: Type of UI component to create
+                       Options: "window", "dialog", "widget", "button", "label", "input", 
+                               "checkbox", "radio", "combobox", "listbox", "table", "tree",
+                               "menu", "toolbar", "statusbar", "tab", "group", "splitter",
+                               "scroll", "progress", "slider", "spin", "date", "text_edit",
+                               "custom", "full_app"
+        properties: Dictionary of component properties (text, size, position, etc.)
+        layout_type: Layout manager type ("vertical", "horizontal", "grid", "form", "absolute")
+        parent_window: Whether to create as standalone window or widget
+        file_path: Optional path to save the generated code
     
     Returns:
-        Dictionary containing webpage content and metadata
+        Dictionary containing the generated Qt code and component information
     """
     try:
-        # Validate URL
-        parsed_url = urlparse(url)
-        if not parsed_url.scheme or not parsed_url.netloc:
-            return {
-                "success": False,
-                "error": "Invalid URL format",
-                "url": url
-            }
+        if properties is None:
+            properties = {}
         
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
+        # Default properties
+        default_props = {
+            "title": "Qt Application",
+            "width": 800,
+            "height": 600,
+            "x": 100,
+            "y": 100,
+            "text": "Qt Component",
+            "enabled": True,
+            "visible": True
         }
         
-        request = Request(url, headers=headers)
+        # Merge with user properties
+        props = {**default_props, **properties}
         
-        with urlopen(request, timeout=15) as response:
-            content = response.read()
-            
-            # Handle different encodings
-            encoding = response.headers.get_content_charset() or 'utf-8'
-            html_content = content.decode(encoding, errors='ignore')
-            
-            # Extract title
-            title_match = re.search(r'<title[^>]*>([^<]+)</title>', html_content, re.IGNORECASE)
-            title = title_match.group(1) if title_match else "No title found"
-            title = html.unescape(title).strip()
-            
-            # Remove script and style elements
-            html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-            html_content = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-            
-            # Extract text content by removing HTML tags
-            text_content = re.sub(r'<[^>]+>', ' ', html_content)
-            
-            # Clean up whitespace
-            text_content = re.sub(r'\s+', ' ', text_content).strip()
-            
-            # Unescape HTML entities
-            text_content = html.unescape(text_content)
-            
-            # Truncate if necessary
-            if len(text_content) > max_length:
-                text_content = text_content[:max_length] + "..."
-            
-            return {
-                "success": True,
-                "url": url,
-                "title": title,
-                "content": text_content,
-                "content_length": len(text_content),
-                "status_code": response.status,
-                "content_type": response.headers.get('Content-Type', 'unknown')
-            }
-            
-    except HTTPError as e:
-        return {
-            "success": False,
-            "error": f"HTTP Error {e.code}: {e.reason}",
-            "url": url,
-            "status_code": e.code
-        }
-    except URLError as e:
-        return {
-            "success": False,
-            "error": f"URL Error: {e.reason}",
-            "url": url
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "url": url
-        }
+        # Generate imports
+        imports = _generate_qt_imports(component_type)
+        
+        # Generate component code
+        component_code = _generate_qt_component(component_type, props, layout_type, parent_window)
+        
+        # Generate full application code
+        full_code = f"""{imports}
 
+{component_code}
 
-@mcp.tool()
-def execute_python_script(code: str, timeout: int = 30, save_output: bool = False, output_file: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Execute Python code in a temporary script file.
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
     
-    Args:
-        code: The Python code to execute
-        timeout: Maximum execution time in seconds (default: 30)
-        save_output: Whether to save the output to a file (default: False)
-        output_file: Optional file path to save output (if save_output is True)
+    # Apply a modern style
+    app.setStyle('Fusion')
     
-    Returns:
-        Dictionary containing execution results, output, and any errors
-    """
-    try:
-        # Create a unique temporary file
-        script_id = str(uuid.uuid4())[:8]
-        temp_script = f"/tmp/rigel_script_{script_id}.py"
+    # Create and show the main component
+    window = {_get_main_class_name(component_type)}()
+    window.show()
+    
+    sys.exit(app.exec())
+"""
         
-        # Write the code to the temporary file
-        with open(temp_script, 'w', encoding='utf-8') as f:
-            f.write(code)
-        
-        # Execute the script
-        start_time = time.time()
-        result = subprocess.run(
-            [sys.executable, temp_script],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd="/tmp"
-        )
-        execution_time = time.time() - start_time
-        
-        # Prepare the result
-        execution_result = {
-            "success": result.returncode == 0,
-            "script_id": script_id,
-            "execution_time": round(execution_time, 3),
-            "return_code": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "script_path": temp_script,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        # Save output to file if requested
-        if save_output and (result.stdout or result.stderr):
-            if not output_file:
-                output_file = f"/tmp/rigel_output_{script_id}.txt"
-            
+        # Save to file if path provided
+        if file_path:
             try:
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write(f"=== Python Script Execution Results ===\n")
-                    f.write(f"Script ID: {script_id}\n")
-                    f.write(f"Timestamp: {execution_result['timestamp']}\n")
-                    f.write(f"Execution Time: {execution_time:.3f}s\n")
-                    f.write(f"Return Code: {result.returncode}\n\n")
-                    
-                    if result.stdout:
-                        f.write("=== STDOUT ===\n")
-                        f.write(result.stdout)
-                        f.write("\n\n")
-                    
-                    if result.stderr:
-                        f.write("=== STDERR ===\n")
-                        f.write(result.stderr)
-                        f.write("\n\n")
-                    
-                    f.write("=== CODE ===\n")
-                    f.write(code)
-                
-                execution_result["output_file"] = output_file
-                execution_result["output_saved"] = True
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(full_code)
+                saved = True
+                save_path = os.path.abspath(file_path)
             except Exception as e:
-                execution_result["output_save_error"] = str(e)
-                execution_result["output_saved"] = False
-        
-        # Clean up the temporary script file
-        try:
-            os.remove(temp_script)
-            execution_result["script_cleaned"] = True
-        except Exception as e:
-            execution_result["cleanup_error"] = str(e)
-            execution_result["script_cleaned"] = False
-        
-        return execution_result
-        
-    except subprocess.TimeoutExpired:
-        # Clean up on timeout
-        try:
-            os.remove(temp_script)
-        except:
-            pass
-        
-        return {
-            "success": False,
-            "error": f"Script execution timed out after {timeout} seconds",
-            "script_id": script_id,
-            "timeout": timeout,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        # Clean up on error
-        try:
-            os.remove(temp_script)
-        except:
-            pass
-        
-        return {
-            "success": False,
-            "error": str(e),
-            "script_id": script_id,
-            "timestamp": datetime.now().isoformat()
-        }
-
-
-@mcp.tool()
-def install_python_library(package_name: str, version: Optional[str] = None, upgrade: bool = False, user_install: bool = True, extra_args: Optional[List[str]] = None) -> Dict[str, Any]:
-    """
-    Install Python libraries using pip.
-    
-    Args:
-        package_name: Name of the package to install (e.g., 'requests', 'numpy')
-        version: Optional specific version to install (e.g., '2.28.1')
-        upgrade: Whether to upgrade the package if already installed (default: False)
-        user_install: Whether to install for user only (--user flag) (default: True)
-        extra_args: Optional list of additional pip arguments
-    
-    Returns:
-        Dictionary containing installation results and package information
-    """
-    try:
-        # Build the pip command
-        pip_cmd = [sys.executable, "-m", "pip", "install"]
-        
-        # Add user flag if requested
-        if user_install:
-            pip_cmd.append("--user")
-        
-        # Add upgrade flag if requested
-        if upgrade:
-            pip_cmd.append("--upgrade")
-        
-        # Build package specification
-        if version:
-            package_spec = f"{package_name}=={version}"
+                saved = False
+                save_path = f"Error saving: {str(e)}"
         else:
-            package_spec = package_name
+            saved = False
+            save_path = None
         
-        pip_cmd.append(package_spec)
+        # Get available methods for the component
+        available_methods = _get_qt_component_methods(component_type)
         
-        # Add any extra arguments
-        if extra_args:
-            pip_cmd.extend(extra_args)
-        
-        # Execute the installation
-        start_time = time.time()
-        result = subprocess.run(
-            pip_cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout for installations
-            cwd="/tmp"
-        )
-        execution_time = time.time() - start_time
-        
-        # Check if installation was successful
-        success = result.returncode == 0
-        
-        # Try to get package information after installation
-        package_info = {}
-        if success:
-            try:
-                # Get package version and location
-                show_result = subprocess.run(
-                    [sys.executable, "-m", "pip", "show", package_name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
-                
-                if show_result.returncode == 0:
-                    # Parse pip show output
-                    for line in show_result.stdout.split('\n'):
-                        if ':' in line:
-                            key, value = line.split(':', 1)
-                            package_info[key.strip().lower().replace('-', '_')] = value.strip()
-                
-                # Test import
-                import_test_result = subprocess.run(
-                    [sys.executable, "-c", f"import {package_name}; print(f'Successfully imported {package_name}')"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
-                
-                package_info["import_test_success"] = import_test_result.returncode == 0
-                package_info["import_test_output"] = import_test_result.stdout if import_test_result.returncode == 0 else import_test_result.stderr
-                
-            except Exception as e:
-                package_info["info_error"] = str(e)
-        
-        return {
-            "success": success,
-            "package_name": package_name,
-            "version_requested": version,
-            "package_spec": package_spec,
-            "execution_time": round(execution_time, 3),
-            "return_code": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "command": " ".join(pip_cmd),
-            "user_install": user_install,
-            "upgrade": upgrade,
-            "package_info": package_info,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "error": "Package installation timed out after 5 minutes",
-            "package_name": package_name,
-            "version_requested": version,
-            "timeout": 300,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "package_name": package_name,
-            "version_requested": version,
-            "timestamp": datetime.now().isoformat()
-        }
-
-
-@mcp.tool()
-def list_installed_packages(search_pattern: Optional[str] = None, include_system: bool = False) -> Dict[str, Any]:
-    """
-    List installed Python packages.
-    
-    Args:
-        search_pattern: Optional pattern to filter packages (case-insensitive)
-        include_system: Whether to include system packages (default: False, shows only user packages)
-    
-    Returns:
-        Dictionary containing list of installed packages with their versions
-    """
-    try:
-        # Build pip list command
-        pip_cmd = [sys.executable, "-m", "pip", "list"]
-        
-        if not include_system:
-            pip_cmd.append("--user")
-        
-        # Execute pip list
-        result = subprocess.run(
-            pip_cmd,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        if result.returncode != 0:
-            return {
-                "success": False,
-                "error": "Failed to list packages",
-                "stderr": result.stderr,
-                "command": " ".join(pip_cmd)
-            }
-        
-        # Parse the output
-        packages = []
-        lines = result.stdout.strip().split('\n')
-        
-        # Skip header lines
-        for line in lines[2:]:  # Usually first two lines are headers
-            if line.strip():
-                parts = line.split()
-                if len(parts) >= 2:
-                    package_name = parts[0]
-                    version = parts[1]
-                    
-                    # Apply search filter if provided
-                    if search_pattern is None or search_pattern.lower() in package_name.lower():
-                        packages.append({
-                            "name": package_name,
-                            "version": version
-                        })
-        
-        # Get additional info about Python environment
-        env_info = {}
-        try:
-            env_info["python_version"] = platform.python_version()
-            env_info["python_executable"] = sys.executable
-            
-            # Get pip version
-            pip_version_result = subprocess.run(
-                [sys.executable, "-m", "pip", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if pip_version_result.returncode == 0:
-                env_info["pip_version"] = pip_version_result.stdout.strip()
-                
-        except Exception as e:
-            env_info["info_error"] = str(e)
+        # Get styling examples
+        styling_examples = _get_qt_styling_examples(component_type)
         
         return {
             "success": True,
-            "packages": packages,
-            "total_packages": len(packages),
-            "search_pattern": search_pattern,
-            "include_system": include_system,
-            "environment_info": env_info,
-            "command": " ".join(pip_cmd),
-            "timestamp": datetime.now().isoformat()
+            "component_type": component_type,
+            "properties": props,
+            "layout_type": layout_type,
+            "code": full_code,
+            "imports": imports,
+            "component_code": component_code,
+            "main_class": _get_main_class_name(component_type),
+            "saved": saved,
+            "file_path": save_path,
+            "available_methods": available_methods,
+            "styling_examples": styling_examples,
+            "usage_tips": _get_qt_usage_tips(component_type),
+            "dependencies": ["PyQt6 or PySide6", "sys", "os (optional)"],
+            "install_command": "pip install PyQt6  # or pip install PySide6"
         }
         
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "error": "Package listing timed out after 30 seconds",
-            "search_pattern": search_pattern,
-            "include_system": include_system,
-            "timestamp": datetime.now().isoformat()
-        }
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "search_pattern": search_pattern,
-            "include_system": include_system,
-            "timestamp": datetime.now().isoformat()
+            "component_type": component_type
         }
 
+
+def _generate_qt_imports(component_type: str) -> str:
+    """Generate appropriate Qt imports based on component type."""
+    base_imports = [
+        "import sys",
+        "from PyQt6.QtWidgets import *",
+        "from PyQt6.QtCore import *",
+        "from PyQt6.QtGui import *"
+    ]
+    
+    # Add specific imports for certain components
+    if component_type in ["date", "calendar"]:
+        base_imports.append("from PyQt6.QtWidgets import QCalendarWidget, QDateEdit")
+    elif component_type in ["web", "browser"]:
+        base_imports.append("from PyQt6.QtWebEngineWidgets import QWebEngineView")
+    elif component_type in ["chart", "graph"]:
+        base_imports.append("# For charts: pip install PyQtChart")
+        base_imports.append("# from PyQt6.QtCharts import *")
+    
+    return "\n".join(base_imports)
+
+
+def _generate_qt_component(component_type: str, props: Dict, layout_type: Optional[str], parent_window: bool) -> str:
+    """Generate Qt component code based on type and properties."""
+    
+    class_name = _get_main_class_name(component_type)
+    base_class = "QMainWindow" if parent_window or component_type in ["window", "full_app"] else "QWidget"
+    
+    if component_type == "dialog":
+        base_class = "QDialog"
+    
+    code_parts = []
+    
+    # Class definition
+    code_parts.append(f"class {class_name}({base_class}):")
+    code_parts.append("    def __init__(self):")
+    code_parts.append("        super().__init__()")
+    code_parts.append("        self.initUI()")
+    code_parts.append("")
+    code_parts.append("    def initUI(self):")
+    
+    # Set window properties
+    if parent_window or component_type in ["window", "dialog", "full_app"]:
+        code_parts.append(f"        self.setWindowTitle('{props['title']}')")
+        code_parts.append(f"        self.setGeometry({props['x']}, {props['y']}, {props['width']}, {props['height']})")
+    
+    # Generate component-specific code
+    if component_type == "full_app":
+        component_code = _generate_full_app_code(props, layout_type)
+    elif component_type == "window":
+        component_code = _generate_window_code(props, layout_type)
+    elif component_type == "dialog":
+        component_code = _generate_dialog_code(props, layout_type)
+    elif component_type == "button":
+        component_code = _generate_button_code(props)
+    elif component_type == "label":
+        component_code = _generate_label_code(props)
+    elif component_type == "input":
+        component_code = _generate_input_code(props)
+    elif component_type == "table":
+        component_code = _generate_table_code(props)
+    elif component_type == "tree":
+        component_code = _generate_tree_code(props)
+    elif component_type == "menu":
+        component_code = _generate_menu_code(props)
+    elif component_type == "toolbar":
+        component_code = _generate_toolbar_code(props)
+    elif component_type == "tab":
+        component_code = _generate_tab_code(props)
+    elif component_type == "text_edit":
+        component_code = _generate_text_edit_code(props)
+    elif component_type == "progress":
+        component_code = _generate_progress_code(props)
+    elif component_type == "slider":
+        component_code = _generate_slider_code(props)
+    else:
+        component_code = _generate_generic_component_code(component_type, props, layout_type)
+    
+    # Add component code with proper indentation
+    for line in component_code.split('\n'):
+        if line.strip():
+            code_parts.append(f"        {line}")
+        else:
+            code_parts.append("")
+    
+    # Add event handlers and utility methods
+    code_parts.extend(_generate_event_handlers(component_type))
+    
+    return "\n".join(code_parts)
+
+
+def _generate_full_app_code(props: Dict, layout_type: Optional[str]) -> str:
+    """Generate a complete application with multiple components."""
+    return """
+# Create central widget and main layout
+central_widget = QWidget()
+self.setCentralWidget(central_widget)
+
+# Create main layout
+if layout_type == 'grid':
+    main_layout = QGridLayout()
+elif layout_type == 'horizontal':
+    main_layout = QHBoxLayout()
+else:
+    main_layout = QVBoxLayout()
+
+# Create menu bar
+self.create_menu_bar()
+
+# Create toolbar
+self.create_toolbar()
+
+# Create status bar
+self.statusBar().showMessage('Ready')
+
+# Create main content area
+self.create_content_area(main_layout)
+
+# Set the layout
+central_widget.setLayout(main_layout)
+
+# Apply modern styling
+self.setStyleSheet('''
+    QMainWindow {
+        background-color: #f0f0f0;
+    }
+    QPushButton {
+        background-color: #4CAF50;
+        border: none;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+    QPushButton:hover {
+        background-color: #45a049;
+    }
+    QPushButton:pressed {
+        background-color: #3e8e41;
+    }
+''')
+"""
+
+
+def _generate_window_code(props: Dict, layout_type: Optional[str]) -> str:
+    """Generate basic window code."""
+    return """
+# Create central widget
+central_widget = QWidget()
+if hasattr(self, 'setCentralWidget'):
+    self.setCentralWidget(central_widget)
+
+# Create layout
+layout = QVBoxLayout()
+central_widget.setLayout(layout)
+
+# Add some example widgets
+label = QLabel('Welcome to Qt Application')
+label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+layout.addWidget(label)
+
+button = QPushButton('Click Me')
+button.clicked.connect(self.on_button_click)
+layout.addWidget(button)
+"""
+
+
+def _generate_dialog_code(props: Dict, layout_type: Optional[str]) -> str:
+    """Generate dialog code."""
+    return """
+# Create layout
+layout = QVBoxLayout()
+self.setLayout(layout)
+
+# Add content
+label = QLabel('Dialog Content')
+layout.addWidget(label)
+
+# Add buttons
+button_layout = QHBoxLayout()
+ok_button = QPushButton('OK')
+cancel_button = QPushButton('Cancel')
+
+ok_button.clicked.connect(self.accept)
+cancel_button.clicked.connect(self.reject)
+
+button_layout.addWidget(ok_button)
+button_layout.addWidget(cancel_button)
+layout.addLayout(button_layout)
+"""
+
+
+def _generate_button_code(props: Dict) -> str:
+    """Generate button component code."""
+    return f"""
+self.button = QPushButton('{props.get('text', 'Button')}')
+self.button.clicked.connect(self.on_button_click)
+
+layout = QVBoxLayout()
+layout.addWidget(self.button)
+self.setLayout(layout)
+"""
+
+
+def _generate_label_code(props: Dict) -> str:
+    """Generate label component code."""
+    return f"""
+self.label = QLabel('{props.get('text', 'Label')}')
+self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+layout = QVBoxLayout()
+layout.addWidget(self.label)
+self.setLayout(layout)
+"""
+
+
+def _generate_input_code(props: Dict) -> str:
+    """Generate input field code."""
+    return f"""
+self.input = QLineEdit()
+self.input.setPlaceholderText('{props.get('placeholder', 'Enter text...')}')
+self.input.textChanged.connect(self.on_text_changed)
+
+layout = QVBoxLayout()
+layout.addWidget(QLabel('Input:'))
+layout.addWidget(self.input)
+self.setLayout(layout)
+"""
+
+
+def _generate_table_code(props: Dict) -> str:
+    """Generate table widget code."""
+    return """
+self.table = QTableWidget()
+self.table.setRowCount(5)
+self.table.setColumnCount(3)
+self.table.setHorizontalHeaderLabels(['Column 1', 'Column 2', 'Column 3'])
+
+# Add sample data
+for row in range(5):
+    for col in range(3):
+        item = QTableWidgetItem(f'Item {row},{col}')
+        self.table.setItem(row, col, item)
+
+layout = QVBoxLayout()
+layout.addWidget(self.table)
+self.setLayout(layout)
+"""
+
+
+def _generate_tree_code(props: Dict) -> str:
+    """Generate tree widget code."""
+    return """
+self.tree = QTreeWidget()
+self.tree.setHeaderLabels(['Name', 'Type', 'Size'])
+
+# Add sample items
+root = QTreeWidgetItem(self.tree, ['Root', 'Folder', ''])
+child1 = QTreeWidgetItem(root, ['Child 1', 'File', '1KB'])
+child2 = QTreeWidgetItem(root, ['Child 2', 'File', '2KB'])
+subchild = QTreeWidgetItem(child1, ['Sub Child', 'File', '500B'])
+
+self.tree.expandAll()
+
+layout = QVBoxLayout()
+layout.addWidget(self.tree)
+self.setLayout(layout)
+"""
+
+
+def _generate_menu_code(props: Dict) -> str:
+    """Generate menu bar code."""
+    return """
+menubar = self.menuBar()
+
+# File menu
+file_menu = menubar.addMenu('File')
+file_menu.addAction('New', self.new_file, 'Ctrl+N')
+file_menu.addAction('Open', self.open_file, 'Ctrl+O')
+file_menu.addAction('Save', self.save_file, 'Ctrl+S')
+file_menu.addSeparator()
+file_menu.addAction('Exit', self.close, 'Ctrl+Q')
+
+# Edit menu
+edit_menu = menubar.addMenu('Edit')
+edit_menu.addAction('Cut', self.cut, 'Ctrl+X')
+edit_menu.addAction('Copy', self.copy, 'Ctrl+C')
+edit_menu.addAction('Paste', self.paste, 'Ctrl+V')
+
+# Help menu
+help_menu = menubar.addMenu('Help')
+help_menu.addAction('About', self.about)
+"""
+
+
+def _generate_toolbar_code(props: Dict) -> str:
+    """Generate toolbar code."""
+    return """
+toolbar = self.addToolBar('Main')
+toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+
+# Add actions
+new_action = QAction('New', self)
+new_action.triggered.connect(self.new_file)
+toolbar.addAction(new_action)
+
+open_action = QAction('Open', self)
+open_action.triggered.connect(self.open_file)
+toolbar.addAction(open_action)
+
+save_action = QAction('Save', self)
+save_action.triggered.connect(self.save_file)
+toolbar.addAction(save_action)
+
+toolbar.addSeparator()
+
+exit_action = QAction('Exit', self)
+exit_action.triggered.connect(self.close)
+toolbar.addAction(exit_action)
+"""
+
+
+def _generate_tab_code(props: Dict) -> str:
+    """Generate tab widget code."""
+    return """
+self.tabs = QTabWidget()
+
+# Create tabs
+tab1 = QWidget()
+tab1_layout = QVBoxLayout()
+tab1_layout.addWidget(QLabel('Content of Tab 1'))
+tab1_layout.addWidget(QPushButton('Button in Tab 1'))
+tab1.setLayout(tab1_layout)
+
+tab2 = QWidget()
+tab2_layout = QVBoxLayout()
+tab2_layout.addWidget(QLabel('Content of Tab 2'))
+tab2_layout.addWidget(QLineEdit('Input in Tab 2'))
+tab2.setLayout(tab2_layout)
+
+tab3 = QWidget()
+tab3_layout = QVBoxLayout()
+tab3_layout.addWidget(QTextEdit('Text editor in Tab 3'))
+tab3.setLayout(tab3_layout)
+
+# Add tabs
+self.tabs.addTab(tab1, 'Tab 1')
+self.tabs.addTab(tab2, 'Tab 2')
+self.tabs.addTab(tab3, 'Tab 3')
+
+layout = QVBoxLayout()
+layout.addWidget(self.tabs)
+self.setLayout(layout)
+"""
+
+
+def _generate_text_edit_code(props: Dict) -> str:
+    """Generate text edit widget code."""
+    return """
+self.text_edit = QTextEdit()
+self.text_edit.setPlainText('Enter your text here...')
+
+# Create toolbar for text formatting
+text_toolbar = QHBoxLayout()
+
+bold_btn = QPushButton('Bold')
+bold_btn.clicked.connect(self.make_bold)
+text_toolbar.addWidget(bold_btn)
+
+italic_btn = QPushButton('Italic')
+italic_btn.clicked.connect(self.make_italic)
+text_toolbar.addWidget(italic_btn)
+
+underline_btn = QPushButton('Underline')
+underline_btn.clicked.connect(self.make_underline)
+text_toolbar.addWidget(underline_btn)
+
+layout = QVBoxLayout()
+layout.addLayout(text_toolbar)
+layout.addWidget(self.text_edit)
+self.setLayout(layout)
+"""
+
+
+def _generate_progress_code(props: Dict) -> str:
+    """Generate progress bar code."""
+    return """
+self.progress = QProgressBar()
+self.progress.setMinimum(0)
+self.progress.setMaximum(100)
+self.progress.setValue(0)
+
+self.start_btn = QPushButton('Start Progress')
+self.start_btn.clicked.connect(self.start_progress)
+
+self.timer = QTimer()
+self.timer.timeout.connect(self.update_progress)
+
+layout = QVBoxLayout()
+layout.addWidget(QLabel('Progress Demo:'))
+layout.addWidget(self.progress)
+layout.addWidget(self.start_btn)
+self.setLayout(layout)
+"""
+
+
+def _generate_slider_code(props: Dict) -> str:
+    """Generate slider widget code."""
+    return """
+self.slider = QSlider(Qt.Orientation.Horizontal)
+self.slider.setMinimum(0)
+self.slider.setMaximum(100)
+self.slider.setValue(50)
+self.slider.valueChanged.connect(self.on_slider_change)
+
+self.value_label = QLabel('Value: 50')
+
+layout = QVBoxLayout()
+layout.addWidget(QLabel('Slider Demo:'))
+layout.addWidget(self.slider)
+layout.addWidget(self.value_label)
+self.setLayout(layout)
+"""
+
+
+def _generate_generic_component_code(component_type: str, props: Dict, layout_type: Optional[str]) -> str:
+    """Generate generic component code for unlisted types."""
+    layout_code = "QVBoxLayout()" if layout_type != "horizontal" else "QHBoxLayout()"
+    
+    return f"""
+# Generic {component_type} component
+layout = {layout_code}
+
+# Add your custom {component_type} implementation here
+label = QLabel('Custom {component_type} Component')
+label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+layout.addWidget(label)
+
+self.setLayout(layout)
+"""
+
+
+def _generate_event_handlers(component_type: str) -> List[str]:
+    """Generate common event handler methods."""
+    handlers = [
+        "",
+        "    def on_button_click(self):",
+        "        print('Button clicked!')",
+        "        # Add your button click logic here",
+        "",
+    ]
+    
+    if component_type in ["input", "text_edit"]:
+        handlers.extend([
+            "    def on_text_changed(self, text):",
+            "        print(f'Text changed: {text}')",
+            "",
+        ])
+    
+    if component_type == "full_app":
+        handlers.extend([
+            "    def create_menu_bar(self):",
+            "        menubar = self.menuBar()",
+            "        file_menu = menubar.addMenu('File')",
+            "        file_menu.addAction('Exit', self.close)",
+            "",
+            "    def create_toolbar(self):",
+            "        toolbar = self.addToolBar('Main')",
+            "        exit_action = QAction('Exit', self)",
+            "        exit_action.triggered.connect(self.close)",
+            "        toolbar.addAction(exit_action)",
+            "",
+            "    def create_content_area(self, layout):",
+            "        # Main content area",
+            "        content_widget = QWidget()",
+            "        content_layout = QVBoxLayout()",
+            "        ",
+            "        # Add your main content here",
+            "        content_layout.addWidget(QLabel('Main Content Area'))",
+            "        content_layout.addWidget(QPushButton('Sample Button'))",
+            "        ",
+            "        content_widget.setLayout(content_layout)",
+            "        layout.addWidget(content_widget)",
+            "",
+            "    def new_file(self):",
+            "        print('New file action')",
+            "",
+            "    def open_file(self):",
+            "        print('Open file action')",
+            "",
+            "    def save_file(self):",
+            "        print('Save file action')",
+            "",
+            "    def cut(self):",
+            "        print('Cut action')",
+            "",
+            "    def copy(self):",
+            "        print('Copy action')",
+            "",
+            "    def paste(self):",
+            "        print('Paste action')",
+            "",
+            "    def about(self):",
+            "        QMessageBox.about(self, 'About', 'Qt Application Example')",
+            "",
+        ])
+    
+    if component_type == "text_edit":
+        handlers.extend([
+            "    def make_bold(self):",
+            "        cursor = self.text_edit.textCursor()",
+            "        format = cursor.charFormat()",
+            "        format.setFontWeight(QFont.Weight.Bold if format.fontWeight() != QFont.Weight.Bold else QFont.Weight.Normal)",
+            "        cursor.setCharFormat(format)",
+            "",
+            "    def make_italic(self):",
+            "        cursor = self.text_edit.textCursor()",
+            "        format = cursor.charFormat()",
+            "        format.setFontItalic(not format.fontItalic())",
+            "        cursor.setCharFormat(format)",
+            "",
+            "    def make_underline(self):",
+            "        cursor = self.text_edit.textCursor()",
+            "        format = cursor.charFormat()",
+            "        format.setFontUnderline(not format.fontUnderline())",
+            "        cursor.setCharFormat(format)",
+            "",
+        ])
+    
+    if component_type == "progress":
+        handlers.extend([
+            "    def start_progress(self):",
+            "        self.progress.setValue(0)",
+            "        self.timer.start(100)  # Update every 100ms",
+            "        self.start_btn.setEnabled(False)",
+            "",
+            "    def update_progress(self):",
+            "        value = self.progress.value() + 1",
+            "        self.progress.setValue(value)",
+            "        if value >= 100:",
+            "            self.timer.stop()",
+            "            self.start_btn.setEnabled(True)",
+            "",
+        ])
+    
+    if component_type == "slider":
+        handlers.extend([
+            "    def on_slider_change(self, value):",
+            "        self.value_label.setText(f'Value: {value}')",
+            "",
+        ])
+    
+    return handlers
+
+
+def _get_main_class_name(component_type: str) -> str:
+    """Get appropriate class name for component type."""
+    names = {
+        "window": "MainWindow",
+        "dialog": "CustomDialog",
+        "full_app": "MainApplication",
+        "button": "ButtonWidget",
+        "label": "LabelWidget",
+        "input": "InputWidget",
+        "table": "TableWidget",
+        "tree": "TreeWidget",
+        "menu": "MenuWindow",
+        "toolbar": "ToolbarWindow",
+        "tab": "TabWidget",
+        "text_edit": "TextEditWidget",
+        "progress": "ProgressWidget",
+        "slider": "SliderWidget"
+    }
+    return names.get(component_type, f"{component_type.title()}Widget")
+
+
+def _get_qt_component_methods(component_type: str) -> Dict[str, List[str]]:
+    """Get available methods for Qt component types."""
+    common_methods = [
+        "show()", "hide()", "setVisible(bool)",
+        "setEnabled(bool)", "setToolTip(str)",
+        "setStyleSheet(str)", "resize(width, height)",
+        "move(x, y)", "setFixedSize(width, height)"
+    ]
+    
+    specific_methods = {
+        "window": [
+            "setWindowTitle(str)", "setWindowIcon(QIcon)",
+            "setCentralWidget(QWidget)", "menuBar()",
+            "statusBar()", "addToolBar(str)"
+        ],
+        "button": [
+            "setText(str)", "text()", "clicked.connect(func)",
+            "setCheckable(bool)", "isChecked()", "setIcon(QIcon)"
+        ],
+        "label": [
+            "setText(str)", "text()", "setAlignment(Qt.Alignment)",
+            "setPixmap(QPixmap)", "setWordWrap(bool)"
+        ],
+        "input": [
+            "setText(str)", "text()", "setPlaceholderText(str)",
+            "textChanged.connect(func)", "setEchoMode(QLineEdit.EchoMode)",
+            "setValidator(QValidator)"
+        ],
+        "table": [
+            "setRowCount(int)", "setColumnCount(int)",
+            "setHorizontalHeaderLabels(list)", "setItem(row, col, QTableWidgetItem)",
+            "item(row, col)", "currentRow()", "currentColumn()"
+        ],
+        "text_edit": [
+            "setPlainText(str)", "toPlainText()", "setHtml(str)",
+            "toHtml()", "append(str)", "clear()",
+            "textChanged.connect(func)"
+        ]
+    }
+    
+    return {
+        "common": common_methods,
+        "specific": specific_methods.get(component_type, [])
+    }
+
+
+def _get_qt_styling_examples(component_type: str) -> Dict[str, str]:
+    """Get CSS styling examples for Qt components."""
+    
+    common_styles = """
+/* Common styling */
+QWidget {
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+}
+
+QWidget:focus {
+    outline: none;
+    border: 2px solid #3498db;
+}
+"""
+    
+    specific_styles = {
+        "button": """
+QPushButton {
+    background-color: #3498db;
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #2980b9;
+}
+
+QPushButton:pressed {
+    background-color: #21618c;
+}
+
+QPushButton:disabled {
+    background-color: #bdc3c7;
+    color: #7f8c8d;
+}
+""",
+        "input": """
+QLineEdit {
+    border: 2px solid #bdc3c7;
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 14px;
+}
+
+QLineEdit:focus {
+    border-color: #3498db;
+}
+
+QLineEdit:disabled {
+    background-color: #ecf0f1;
+    color: #7f8c8d;
+}
+""",
+        "table": """
+QTableWidget {
+    gridline-color: #bdc3c7;
+    background-color: white;
+    alternate-background-color: #f8f9fa;
+}
+
+QHeaderView::section {
+    background-color: #34495e;
+    color: white;
+    padding: 8px;
+    border: none;
+    font-weight: bold;
+}
+
+QTableWidget::item:selected {
+    background-color: #3498db;
+    color: white;
+}
+"""
+    }
+    
+    return {
+        "common": common_styles,
+        "specific": specific_styles.get(component_type, "/* No specific styles available */")
+    }
+
+
+def _get_qt_usage_tips(component_type: str) -> List[str]:
+    """Get usage tips for Qt components."""
+    
+    common_tips = [
+        "Use layouts instead of absolute positioning for responsive design",
+        "Always call super().__init__() in your widget constructor",
+        "Connect signals to slots for event handling",
+        "Use stylesheets for consistent theming",
+        "Set object names for easier CSS targeting: widget.setObjectName('myWidget')"
+    ]
+    
+    specific_tips = {
+        "window": [
+            "Use setCentralWidget() for main content in QMainWindow",
+            "Add menus with menuBar().addMenu()",
+            "Use statusBar() for status messages",
+            "Set window properties before showing"
+        ],
+        "button": [
+            "Use clicked.connect() to handle button presses",
+            "Set icons with setIcon(QIcon('path/to/icon.png'))",
+            "Make buttons checkable with setCheckable(True)",
+            "Use keyboard shortcuts with setShortcut()"
+        ],
+        "table": [
+            "Use QTableWidgetItem for cell content",
+            "Enable sorting with setSortingEnabled(True)",
+            "Handle selection with selectionChanged signal",
+            "Use setSpan() to merge cells"
+        ],
+        "layout": [
+            "QVBoxLayout for vertical arrangement",
+            "QHBoxLayout for horizontal arrangement", 
+            "QGridLayout for grid arrangement",
+            "QFormLayout for form-like layout",
+            "Use spacers to control widget spacing"
+        ]
+    }
+    
+    all_tips = common_tips.copy()
+    all_tips.extend(specific_tips.get(component_type, []))
+    
+    return all_tips
 
 
 if __name__ == "__main__":

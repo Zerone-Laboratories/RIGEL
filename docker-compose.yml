@@ -2,28 +2,29 @@ services:
   rigel-server:
     build: .
     environment:
-      - SERVER_TYPE=dbus # Change to 'dbus' to run dbus_server.py
       - GROQ_API_KEY= # Ensure this is set in your environment
-      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-ollama} # Default to groq, can be set to 'ollama'
+      - DEFAULT_INFERENCE_ENGINE=${DEFAULT_INFERENCE_ENGINE:-ollama} # Default to ollama, can be set to 'groq'
       - OLLAMA_USE_GPU=true # Force Ollama to use GPU
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
-      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
-    command: >
-      sh -c "if [ \"$$INFERENCE_ENGINE\" = 'ollama' ]; then (nohup ollama serve &) && sleep 5; fi &&
-             if [ \"$$SERVER_TYPE\" = 'dbus' ]; then python dbus_server.py; else python web_server.py; fi"
+      - GROQ_MODEL=${GROQ_MODEL:-openai/gpt-oss-120b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://localhost:11434}
+      - PRODUCTION=true
+      - PYTHONUNBUFFERED=1
+      - SERVER_TYPE=dbus # Options: web_instanced|web|web_v2|dbus
     ports:
       - "8000:8000"
+      - "9000-9100:9000-9100"  # Range for tenant MCP servers
       - "11434:11434"
     volumes:
       - .:/app
+      - ./user_tools:/app/user_tools
+      - ./user_rag:/app/user_rag
+      # Persist databases under /app/db (host ./db)
+      - ./db:/app/db
       - ollama-models:/root/.ollama
-      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:rw
-      - ./rigel-dbus.conf:/etc/dbus-1/system.d/rigel-dbus.conf:ro
-      - /etc/dbus-1/system.d/:/etc/dbus-1/system.d/:ro
-      - ${HOME}:${HOME}
-    privileged: true
-    cap_add:
-      - SYS_ADMIN
+      # Mount D-Bus system socket for system bus access
+      - /var/run/dbus:/var/run/dbus:ro
     deploy:
       resources:
         reservations:
@@ -41,7 +42,8 @@ services:
       - "8001:8001"
     volumes:
       - .:/app
-      - ${HOME}:${HOME}
+      - ./user_tools:/app/user_tools
+      - ./user_rag:/app/user_rag
 
 volumes:
   ollama-models:

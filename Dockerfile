@@ -59,5 +59,14 @@ RUN  curl -fsSL https://ollama.com/install.sh | sh
 
 RUN chmod +x /usr/local/bin/ollama
 
+# Create directories for user data
+RUN mkdir -p /app/user_tools /app/user_rag
+
+# Add entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+
 # Default to web_server.py, can be overridden by CMD
 CMD ["python", "web_server.py"]
