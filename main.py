@@ -24,6 +24,7 @@ Allows users to choose between D-Bus server and Web server modes
 import os
 import sys
 import subprocess
+from dotenv import load_dotenv
 
 def print_banner():
     """Display the RIGEL banner"""
@@ -123,6 +124,8 @@ def run_web_server():
 
 def main():
     """Main launcher function"""
+    # Load environment from .env so child processes pick up variables in same shell
+    load_dotenv()
     print_banner()
     
     # Check dependencies

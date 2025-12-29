@@ -64,5 +64,4 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# Default to web_server.py, can be overridden by CMD
-CMD ["python", "web_server.py"]
+CMD ["python", "dbus_server.py"]

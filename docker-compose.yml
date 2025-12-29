@@ -3,17 +3,28 @@ services:
     build: .
     image: rigel:latest  # Tag the built image
     network_mode: host  # Share host network to access host ollama
+    env_file:
+      - .env
     environment:
-      - GROQ_API_KEY= # Ensure this is set in your environment
-      - DEFAULT_INFERENCE_ENGINE=${DEFAULT_INFERENCE_ENGINE:-ollama} # Default to ollama, can be set to 'groq'
+      - GROQ_API_KEY=${GROQ_API_KEY} # Read from .env or shell
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default can be overridden in .env
       - OLLAMA_USE_GPU=true # Force Ollama to use GPU
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
       - GROQ_MODEL=${GROQ_MODEL:-openai/gpt-oss-120b}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://localhost:11434}
+      - GENERAL_LLM_MODEL=${GENERAL_LLM_MODEL}
+      - TOOL_CALL_ENGINE=${TOOL_CALL_ENGINE}
+      - TOOL_CALL_MODEL=${TOOL_CALL_MODEL:-qwen3:0.6b}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+      - TOOL_TEMPERATURE=${TOOL_TEMPERATURE:-0.0}
+      - VOICE_RECOGNITION_MODEL=${VOICE_RECOGNITION_MODEL:-tiny}
+      - RIGEL_MCP_TOOLS_SSE_URL=${RIGEL_MCP_TOOLS_SSE_URL:-http://localhost:8001/sse}
       - PRODUCTION=true
       - PYTHONUNBUFFERED=1
-      - SERVER_TYPE=dbus # Options: web_instanced|web|web_v2|dbus
+      - SERVER_TYPE=${SERVER_TYPE:-dbus} # Options: web_instanced|web|web_v2|dbus
+      # Point to the host system D-Bus if available (socket mounted below)
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
     volumes:
       - .:/app
       - ./user_tools:/app/user_tools
@@ -21,10 +32,10 @@ services:
       # Persist databases under /app/db (host ./db)
       - ./db:/app/db
       - ollama-models:/root/.ollama
-      # Mount D-Bus system socket for system bus access
-      - /var/run/dbus:/var/run/dbus:ro
       # Mount system ollama binary
       - /usr/bin/ollama:/usr/bin/ollama:ro
+      # Mount host D-Bus system bus socket for host integration
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
     deploy:
       resources:
         reservations:
@@ -35,8 +46,12 @@ services:
       
   rigel-tools-server:
     image: rigel:latest  # Reuse the same image
+    env_file:
+      - .env
     environment:
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
+      # Ensure this service uses its explicit command, not SERVER_TYPE
+      - SERVER_TYPE=
     command: python -m core.mcp.rigel_tools_server
     ports:
       - "8001:8001"

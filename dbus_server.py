@@ -27,8 +27,12 @@ import concurrent.futures
 import os
 import tempfile
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from dotenv import load_dotenv
 # Initialize logging
 syslog = SysLog(name="RigelDBusServer", level="INFO", log_file="server.log")
+
+# Load environment from .env (if present)
+load_dotenv()
 
 global rigel, system_prompt, synthesizer, recognizer
 rigel = None
@@ -132,9 +136,17 @@ class RigelServer(object):
         return response
 
     def QueryWithTools(self, query):
-        # global rigel
-        # [TODO] Change this to be able to manage from the .env
-        rigel_agent = RigelOllama(model_name="qwen3:0.6b", temp=0)
+        # Configure tool-call backend and model via environment
+        tool_engine = os.getenv("TOOL_CALL_ENGINE", os.getenv("INFERENCE_ENGINE", "ollama")).lower()
+        default_tool_model = "qwen3:0.6b" if tool_engine == "ollama" else os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        tool_model = os.getenv("TOOL_CALL_MODEL", default_tool_model)
+        tool_temp = float(os.getenv("TOOL_TEMPERATURE", os.getenv("TEMPERATURE", "0.0")))
+
+        rigel_agent = (
+            RigelGroq(model_name=tool_model, temp=tool_temp)
+            if tool_engine == "groq"
+            else RigelOllama(model_name=tool_model, temp=tool_temp)
+        )
 
         syslog.info(f"QueryWithTools called with query: {query[:100]}...")
         try:
@@ -235,14 +247,17 @@ if __name__ == "__main__":
               python core/mcp/rigel_tools_server.py
               """)
     
-    # Get backend from environment variable
+    # Get backend and model from environment
     inference_engine = os.environ.get("INFERENCE_ENGINE", "ollama").lower()
-    
+    # Prefer GENERAL_LLM_MODEL, then backend-specific default, then hardcoded fallback
+    general_model = os.getenv("GENERAL_LLM_MODEL")
     if inference_engine == "groq":
-        rigel = RigelGroq(model_name="openai/gpt-oss-120b", mcp_endpoint=default_mcp)
+        model_to_use = general_model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        rigel = RigelGroq(model_name=model_to_use, mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
     else:
-        rigel = RigelOllama(model_name="qwen3:0.6b")
+        model_to_use = general_model or os.getenv("OLLAMA_MODEL", "llama3.2")
+        rigel = RigelOllama(model_name=model_to_use, mcp_endpoint=default_mcp)
         print("RIGEL initialized with OLLAMA backend")
 
 
@@ -253,7 +268,7 @@ if __name__ == "__main__":
     print("Initializing voice synthesis and recognition...")
     try:
         synthesizer = Synthesizer(mode="chunk")
-        recognizer = Recognizer(model="tiny")
+        recognizer = Recognizer(model=os.getenv("VOICE_RECOGNITION_MODEL", "tiny"))
         print("Voice components initialized successfully")
     except Exception as e:
         print(f"Warning: Failed to initialize voice components: {e}")

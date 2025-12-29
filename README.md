@@ -1180,11 +1180,11 @@ INFERENCE_ENGINE=groq GROQ_API_KEY=your_key_here docker-compose up
 SERVER_TYPE=dbus docker-compose up
 ```
 
-> **Note**: When using OLLAMA backend with Docker, the Ollama server will automatically start inside the container. You don't need to start Ollama separately.
+> Note: With `INFERENCE_ENGINE=ollama`, the container prefers a system Ollama if available. Mount your host binary (e.g. `/usr/bin/ollama:/usr/bin/ollama:ro`) or set `OLLAMA_HOST` to a reachable host (e.g. `http://host.docker.internal:11434`). The container starts a local `ollama serve` only when targeting a local endpoint and the binary is present.
 
 ### Docker Features
 
-- **Automatic Ollama Startup**: When `INFERENCE_ENGINE=ollama` is set, the Ollama server will be automatically started inside the container
+- **Ollama Integration**: When `INFERENCE_ENGINE=ollama` is set, the container uses a host/system Ollama if provided (via mounted binary or `OLLAMA_HOST`). It only starts a local `ollama serve` when pointing to a local endpoint and the binary exists in the container.
 - **Persistent Models**: Ollama models are stored in a Docker volume to persist between container restarts
 - **GPU Support**: Includes NVIDIA GPU support for accelerated inference
 - **Server Type Selection**: Choose between web server and D-Bus server using the `SERVER_TYPE` environment variable
