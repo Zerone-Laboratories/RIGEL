@@ -6,6 +6,15 @@ set -euo pipefail
 echo "Initializing RIGEL tools database..."
 python -c "from user_tools import init_tools_database; init_tools_database()"
 
+# Check if ollama binary exists, if not try to install it
+if ! command -v ollama >/dev/null 2>&1; then
+  echo "Ollama binary not found, installing..."
+  curl -fsSL https://ollama.com/install.sh | sh
+  chmod +x /usr/local/bin/ollama
+else
+  echo "Ollama binary found at $(which ollama)"
+fi
+
 # Optionally start Ollama if selected as inference engine
 # Support both INFERENCE_ENGINE (docs) and DEFAULT_INFERENCE_ENGINE (compose)
 ENGINE=${INFERENCE_ENGINE:-${DEFAULT_INFERENCE_ENGINE:-groq}}

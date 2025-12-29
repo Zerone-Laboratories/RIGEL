@@ -1167,7 +1167,7 @@ RIGEL can be easily deployed using Docker, providing a consistent environment ac
 The project includes a `docker-compose.yml` file that allows you to start either the web server or D-Bus server with minimal setup.
 
 ```bash
-# Start with default GROQ backend and web server
+# Start with default GROQ backend and D-Bus server
 docker-compose up
 
 # Start with OLLAMA backend and web server
@@ -1208,10 +1208,10 @@ When running the D-Bus server in Docker, you'll need to ensure proper D-Bus conn
 
 ### Starting the Web Server with Docker
 
-The web server is the default mode when using Docker Compose:
+The D-Bus server is the default mode when using Docker Compose:
 
 ```bash
-# Start with web server and GROQ backend (default)
+# Start with D-Bus server and GROQ backend (default)
 docker-compose up
 
 # Start with web server and OLLAMA backend

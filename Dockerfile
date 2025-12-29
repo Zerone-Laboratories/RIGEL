@@ -44,20 +44,16 @@ COPY requirements.txt /app/
 # Create symlink for python if it doesn't exist
 RUN ln -sf /usr/bin/python3 /usr/bin/python || true
 
-# Install PyGObject through system packages instead of pip
-# Then install PyTorch separately since it's large
-RUN python -m pip install --no-cache-dir torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+RUN python -m pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
-# Then install the rest of the requirements with a modified requirements file
+# Install Python dependencies excluding PyGObject (before copying app code)
+RUN grep -v "PyGObject" requirements.txt > requirements_filtered.txt && \
+    python -m pip install -r requirements_filtered.txt
+
+# Copy the rest of the application code (after installing dependencies)
 COPY . /app
 
-# Install Python dependencies excluding PyGObject
-RUN grep -v "PyGObject" requirements.txt > requirements_filtered.txt && \
-    python -m pip install --no-cache-dir -r requirements_filtered.txt
-
-RUN  curl -fsSL https://ollama.com/install.sh | sh
-
-RUN chmod +x /usr/local/bin/ollama
+# Ollama installation moved to entrypoint script for runtime detection
 
 # Create directories for user data
 RUN mkdir -p /app/user_tools /app/user_rag

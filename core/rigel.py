@@ -99,6 +99,7 @@ from core.logger import SysLog
 import os
 import glob
 import getpass
+import subprocess
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
@@ -111,6 +112,7 @@ import re
 from langchain.chains import ConversationChain
 import random
 from langchain_mcp_adapters.client import MultiServerMCPClient
+import os
 from core.rdb import DBConn
 from typing import Dict, List, Any, Optional, Union, Tuple
 
@@ -124,17 +126,20 @@ except ImportError:
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
 hello_string = "Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]\n"
+
+# Configure MCP tools endpoint via environment variable, fallback to localhost
+_TOOLS_SSE_URL = os.environ.get("RIGEL_MCP_TOOLS_SSE_URL", "http://localhost:8001/sse")
 default_mcp = MultiServerMCPClient(
-            {
-                "rigel tools": {
-                    "url": "http://rigel-tools-server:8001/sse",
-                    "transport": "sse",
-                }
-            },
-        )
+    {
+        "rigel tools": {
+            "url": _TOOLS_SSE_URL,
+            "transport": "sse",
+        }
+    },
+)
 
 class Rigel: # RIGEL Super Class. Use this to create derived classes
-    def __init__(self, model_name: str = "llama3.2", chatmode: str = "ollama", mcp_endpoint = default_mcp):
+    def __init__(self, model_name: str = "llama3.2", chatmode: str = "ollama", mcp_endpoint = default_mcp, temp=0.7):
         self.model = model_name
         self.chatmode = chatmode
         self.llm = None
@@ -144,6 +149,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.workflow = StateGraph(state_schema=MessagesState)
         self.memory = None
         self.app = None
+        self.temp = temp
         self.agent = None
         self.client = None
         self.ragdb = None
@@ -269,8 +275,18 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
 
     async def inference_with_tools(self, prompt, tools=None):
+        # Initialize MCP and provide clearer errors if it fails
         if not self._initialized:
-            await self.__init_mcp()
+            try:
+                await self.__init_mcp()
+            except Exception as e:
+                syslog.error(f"Failed to initialize MCP client: {e}")
+                hint = (
+                    f"Tools unavailable. Could not connect to MCP tools server at {_TOOLS_SSE_URL}.\n"
+                    "Start the built-in server with: python core/mcp/rigel_tools_server.py\n"
+                    "Or set RIGEL_MCP_TOOLS_SSE_URL to your tools server SSE endpoint."
+                )
+                return AIMessage(content=f"Error occurred during tool-based inference: {str(e)}\n\n{hint}")
 
         messages = [
             SystemMessage(content=self.continuity),
@@ -613,14 +629,52 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         return self.os_tools.get_detailed_system_info()
 
 class RigelOllama(Rigel): # RIGEL with ollama backend
-    def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
+    def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp, temp=0.7):
         super().__init__(model_name=model_name, chatmode="ollama", mcp_endpoint=mcp_endpoint)
-        self.llm = ChatOllama(model=self.model)
+        self.llm = ChatOllama(model=self.model, temperature=temp)
+
+    def _pull_model(self, model_name: str):
+        try:
+            syslog.info(f"Model '{model_name}' not found. Attempting to pull it...")
+            result = subprocess.run(
+                ["ollama", "pull", model_name],
+                capture_output=True,
+                text=True,
+                timeout=600
+            )
+            if result.returncode == 0:
+                syslog.info(f"Successfully pulled model '{model_name}'")
+                return True
+            else:
+                syslog.error(f"Failed to pull model '{model_name}': {result.stderr}")
+                return False
+        except subprocess.TimeoutExpired:
+            syslog.error(f"Timeout while pulling model '{model_name}'")
+            return False
+        except Exception as e:
+            syslog.error(f"Error pulling model '{model_name}': {str(e)}")
+            return False
 
     def inference(self, messages: list, model: str = None):
         if model:
             self.llm.model = model
-        return super().inference(messages)
+        
+        try:
+            return super().inference(messages)
+        except Exception as e:
+            error_str = str(e)
+            if "not found" in error_str.lower() and "404" in error_str:
+                model_to_use = model if model else self.model
+                syslog.warning(f"Model '{model_to_use}' not found, attempting to pull...")
+                
+                if self._pull_model(model_to_use):
+                    syslog.info(f"Model '{model_to_use}' pulled successfully, retrying inference...")
+                    return super().inference(messages)
+                else:
+                    syslog.error(f"Failed to pull model '{model_to_use}', cannot proceed with inference")
+                    raise
+            else:
+                raise
 
 class RigelGroq(Rigel): # RIGEL with groq backend
     def __init__(self, model_name: str = "llama3-70b-8192", temp: float = 0.7,  mcp_endpoint = default_mcp):

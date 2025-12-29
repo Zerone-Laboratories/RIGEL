@@ -1,6 +1,8 @@
 services:
   rigel-server:
     build: .
+    image: rigel:latest  # Tag the built image
+    network_mode: host  # Share host network to access host ollama
     environment:
       - GROQ_API_KEY= # Ensure this is set in your environment
       - DEFAULT_INFERENCE_ENGINE=${DEFAULT_INFERENCE_ENGINE:-ollama} # Default to ollama, can be set to 'groq'
@@ -12,10 +14,6 @@ services:
       - PRODUCTION=true
       - PYTHONUNBUFFERED=1
       - SERVER_TYPE=dbus # Options: web_instanced|web|web_v2|dbus
-    ports:
-      - "8000:8000"
-      - "9000-9100:9000-9100"  # Range for tenant MCP servers
-      - "11434:11434"
     volumes:
       - .:/app
       - ./user_tools:/app/user_tools
@@ -25,6 +23,8 @@ services:
       - ollama-models:/root/.ollama
       # Mount D-Bus system socket for system bus access
       - /var/run/dbus:/var/run/dbus:ro
+      # Mount system ollama binary
+      - /usr/bin/ollama:/usr/bin/ollama:ro
     deploy:
       resources:
         reservations:
@@ -34,7 +34,7 @@ services:
               capabilities: [gpu]
       
   rigel-tools-server:
-    build: .
+    image: rigel:latest  # Reuse the same image
     environment:
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
     command: python -m core.mcp.rigel_tools_server

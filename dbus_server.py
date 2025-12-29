@@ -16,10 +16,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
+from core.rigel import RigelOllama, RigelGroq
 from pydbus import SessionBus, SystemBus
 from gi.repository import GLib
 import os
-from core.rigel import RigelOllama, RigelGroq
 from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer
 import asyncio
@@ -132,12 +132,14 @@ class RigelServer(object):
         return response
 
     def QueryWithTools(self, query):
-        global rigel
+        # global rigel
+        # [TODO] Change this to be able to manage from the .env
+        rigel_agent = RigelOllama(model_name="qwen3:0.6b", temp=0)
 
         syslog.info(f"QueryWithTools called with query: {query[:100]}...")
         try:
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(self._run_async_tools_query, query)
+                future = executor.submit(self._run_async_tools_query, query, rigel_agent)
                 result = future.result(timeout=120)
 
             if hasattr(result, 'content'):
@@ -154,8 +156,7 @@ class RigelServer(object):
             syslog.error(error_msg)
             return f"Error: {error_msg}"
 
-    def _run_async_tools_query(self, query):
-        global rigel
+    def _run_async_tools_query(self, query, rigel):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -218,10 +219,11 @@ if __name__ == "__main__":
     print("")
     default_mcp = None
     # How to add an MCP server
+    tools_sse_url = os.environ.get("RIGEL_MCP_TOOLS_SSE_URL", "http://localhost:8001/sse")
     default_mcp = MultiServerMCPClient(
         {
             "rigel tools": {
-                "url": "http://rigel-tools-server:8001/sse",
+                "url": tools_sse_url,
                 "transport": "sse",
             },
         },
