@@ -32,6 +32,7 @@
   - [Usage with Ollama](#basic-usage-with-ollama)
   - [Usage with Groq](#basic-usage-with-groq)
   - [Usage with Memory](#usage-with-memory)
+  - [Visual Inference](#visual-inference)
 - [Project Structure](#project-structure)
 - [API Reference](#api-reference)
 - [Message Format](#message-format)
@@ -123,6 +124,7 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 | Memory                                         | ✓         |
 | Local Voice Recognition                        | ✓         |
 | Local Voice Synthesis                          | ✓         |
+| Visual Inference (Vision Models)               | ✓         |
 | Multiple Request Handling                      | Un-Tested |
 
 ## Features
@@ -593,6 +595,104 @@ print(f"Conversation has {len(history)} messages")
 # Clear memory when needed
 rigel.clear_memory(thread_id="conversation1")
 ```
+
+### Visual Inference
+
+RIGEL supports visual inference with vision-capable models, allowing you to analyze images and ask questions about them.
+
+#### Supported Vision Models
+
+- **Ollama**: `llava`, `llava-llama3`, `bakllava`, `moondream`
+- **Groq**: `llama-3.2-90b-vision-preview`, `llama-3.2-11b-vision-preview`
+
+#### Basic Visual Inference
+
+```python
+from core.rigel import RigelOllama, RigelGroq
+
+# Using Ollama with a vision model
+rigel = RigelOllama(model_name="llava")
+
+# Analyze a local image
+response = rigel.visual_inference(
+    prompt="What's in this image?",
+    image_source="/path/to/image.jpg"
+)
+print(response.content)
+
+# Analyze an image from URL
+response = rigel.visual_inference(
+    prompt="Describe what you see",
+    image_source="https://example.com/image.png"
+)
+print(response.content)
+
+# Analyze multiple images
+response = rigel.visual_inference(
+    prompt="Compare these two images",
+    image_source=["/path/to/image1.jpg", "/path/to/image2.jpg"]
+)
+print(response.content)
+```
+
+#### Visual Inference with Groq
+
+```python
+import os
+os.environ["GROQ_API_KEY"] = "your-groq-api-key"
+
+rigel = RigelGroq(model_name="llama-3.2-11b-vision-preview")
+
+response = rigel.visual_inference(
+    prompt="Analyze this diagram and explain what it shows",
+    image_source="/path/to/diagram.png",
+    detail="high"  # Use high detail for complex images
+)
+print(response.content)
+```
+
+#### Visual Inference with Memory
+
+```python
+import asyncio
+from core.rigel import RigelOllama
+
+rigel = RigelOllama(model_name="llava")
+
+async def analyze_with_context():
+    # First analysis
+    response1 = await rigel.visual_inference_with_memory(
+        prompt="What objects do you see in this image?",
+        image_source="/path/to/image.jpg",
+        thread_id="visual_chat"
+    )
+    print(response1.content)
+    
+    # Follow-up question (remembers context)
+    response2 = await rigel.visual_inference_with_memory(
+        prompt="What colors are those objects?",
+        image_source="/path/to/image.jpg",
+        thread_id="visual_chat"
+    )
+    print(response2.content)
+
+asyncio.run(analyze_with_context())
+```
+
+#### Image Source Options
+
+The `image_source` parameter accepts:
+- **Local file path**: `"/path/to/image.jpg"`
+- **URL**: `"https://example.com/image.png"`
+- **Raw bytes**: `image_bytes`
+- **List of any combination**: `["/path/to/img1.jpg", "https://example.com/img2.png"]`
+
+#### Detail Levels
+
+The `detail` parameter controls image analysis depth:
+- `"auto"` (default): Let the model decide
+- `"low"`: Faster processing, less detail
+- `"high"`: More thorough analysis, slower
 
 ## Project Structure
 
