@@ -171,18 +171,21 @@ git clone <repository-url>
 cd RIGEL
 ```
 
-2. Create and activate a virtual environment:
+2. For D-Bus integration, install the system D-Bus configuration:
+
+```bash
+sudo bash install_dbus_config.sh
+```
+
+This script installs the `rigel-dbus.conf` configuration into `/etc/dbus-1/system.d/` and reloads D-Bus.
+
+3. If you prefer manual setup, create a Python virtual environment and install dependencies:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # On Linux/macOS
 # or
 .venv\Scripts\activate     # On Windows
-```
-
-3. Install dependencies:
-
-```bash
 pip install -r requirements.txt
 ```
 
@@ -224,15 +227,21 @@ sudo dnf install python3-gobject python3-gobject-cairo gtk3-devel
 
 RIGEL offers two server modes to suit different use cases and environments:
 
-### Main Launcher (Recommended)
+### Docker Compose (Recommended)
 
-Use the main launcher to easily choose between server modes:
+Before starting RIGEL, install dependencies and prepare the host environment. If you need Linux D-Bus integration, run the provided D-Bus installer script first:
 
 ```bash
-python main.py
+sudo bash install_dbus_config.sh
 ```
 
-This will present you with options to run either the D-Bus server or Web server, with automatic dependency checking and helpful setup instructions.
+Then start RIGEL with Docker Compose:
+
+```bash
+docker compose up
+```
+
+This will start RIGEL in a consistent containerized environment with sane defaults and easy server selection via `SERVER_TYPE`.
 
 ### D-Bus Server (Linux Desktop Integration)
 
@@ -357,6 +366,9 @@ This service executes `scripts/host-up.sh` (requires root / sudo) and ensures:
 - built-in `core/mcp/rigel_tools_server.py` runs on host
 - `docker compose up rigel-server` starts host service, not containerized tools server
 
+> Note: For Linux D-Bus integration, run `sudo bash install_dbus_config.sh` before starting RIGEL.
+
+> Note: For Linux D-Bus integration, run `sudo bash install_dbus_config.sh` before starting RIGEL.
 > Note: The MCP server is now started separately from the main RIGEL process. Make sure the MCP server is running before you start the web/D-Bus server.
 
 - To start the MCP server: `python core/mcp/rigel_tools_server.py
@@ -1408,13 +1420,13 @@ The web server provides the same functionality as the D-Bus server through HTTP 
 
 ### Running the Web Server
 
-#### Using the Main Launcher (Recommended)
+#### Using Docker Compose (Recommended)
 
 ```bash
-python main.py
+SERVER_TYPE=web docker compose up
 ```
 
-Select option 2 for Web server. The launcher will check dependencies and provide setup instructions if needed.
+This is the recommended way to start the web API, as it bundles RIGEL with its runtime environment and dependency configuration.
 
 #### Direct Launch
 
@@ -1431,6 +1443,8 @@ The server will start on `http://localhost:8000` with the following URLs availab
 ## Docker Deployment
 
 RIGEL can be easily deployed using Docker, providing a consistent environment across different systems without worrying about dependencies.
+
+This is the recommended deployment method for most users.
 
 ### Using Docker Compose
 
