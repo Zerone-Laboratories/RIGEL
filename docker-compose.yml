@@ -1,29 +1,53 @@
 services:
   rigel-server:
-    build: .
+    build:
+      context: .
+      args:
+        SKIP_PYTHON_DEPS: ${SKIP_PYTHON_DEPS:-false}
+    image: rigel:latest  # Tag the built image
+    network_mode: host  # Share host network to access host ollama
+    env_file:
+      - .env
     environment:
-      - SERVER_TYPE=dbus # Change to 'dbus' to run dbus_server.py
-      - GROQ_API_KEY= # Ensure this is set in your environment
-      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-ollama} # Default to groq, can be set to 'ollama'
+      - GROQ_API_KEY=${GROQ_API_KEY} # Read from .env or shell
+      - OPENAI_API_KEY=${OPENAI_API_KEY} # For vision models
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default can be overridden in .env
       - OLLAMA_USE_GPU=true # Force Ollama to use GPU
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
-      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
-    command: >
-      sh -c "if [ \"$$INFERENCE_ENGINE\" = 'ollama' ]; then (nohup ollama serve &) && sleep 5; fi &&
-             if [ \"$$SERVER_TYPE\" = 'dbus' ]; then python dbus_server.py; else python web_server.py; fi"
-    ports:
-      - "8000:8000"
-      - "11434:11434"
+      - GROQ_MODEL=${GROQ_MODEL:-openai/gpt-oss-120b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://localhost:11434}
+      - GENERAL_LLM_MODEL=${GENERAL_LLM_MODEL}
+      - TOOL_CALL_ENGINE=${TOOL_CALL_ENGINE}
+      - TOOL_CALL_MODEL=${TOOL_CALL_MODEL:-qwen3:0.6b}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+      - TOOL_TEMPERATURE=${TOOL_TEMPERATURE:-0.0}
+      - VOICE_RECOGNITION_MODEL=${VOICE_RECOGNITION_MODEL:-tiny}
+      - RIGEL_MCP_TOOLS_SSE_URL=${RIGEL_MCP_TOOLS_SSE_URL:-http://localhost:8001/sse}
+      - PRODUCTION=true
+      - PYTHONUNBUFFERED=1
+      - SERVER_TYPE=${SERVER_TYPE:-dbus} # Options: web_instanced|web|web_v2|dbus|hybrid
+      - PULSE_SERVER=unix:/tmp/pulse/native
+      - HOST_TMP_MOUNT=${HOST_TMP_MOUNT:-/host_tmp}
+      # Point to the host system D-Bus if available (socket mounted below)
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
     volumes:
       - .:/app
+      - ./user_tools:/app/user_tools
+      - ./user_rag:/app/user_rag
+      # Persist databases under /app/db (host ./db)
+      - ./db:/app/db
       - ollama-models:/root/.ollama
-      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:rw
-      - ./rigel-dbus.conf:/etc/dbus-1/system.d/rigel-dbus.conf:ro
-      - /etc/dbus-1/system.d/:/etc/dbus-1/system.d/:ro
-      - ${HOME}:${HOME}
-    privileged: true
-    cap_add:
-      - SYS_ADMIN
+      - chroma-cache:/root/.cache/chroma
+      # Mount system ollama binary
+      - /usr/bin/ollama:/usr/bin/ollama:ro
+      # Mount host D-Bus system bus socket for host integration
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
+      # Host PulseAudio socket/cookie for container audio playback
+      - /run/user/${HOST_UID:-1000}/pulse/native:/tmp/pulse/native
+      - ${HOST_HOME:-/home/zerone}/.config/pulse/cookie:/root/.config/pulse/cookie:ro
+      # Allow DBus RecognizeAudio to access host-created temp audio files
+      - /tmp:/host_tmp:ro
     deploy:
       resources:
         reservations:
@@ -32,16 +56,10 @@ services:
               count: all
               capabilities: [gpu]
       
-  rigel-tools-server:
-    build: .
-    environment:
-      - RIGEL_ADMIN_KEY=this_is_a_secret_key
-    command: python -m core.mcp.rigel_tools_server
-    ports:
-      - "8001:8001"
-    volumes:
-      - .:/app
-      - ${HOME}:${HOME}
+  # rigel-tools-server is intentionally disabled in Docker-compose when using host MCP server.
+  # Host MCP is managed by systemd via scripts/host-up.sh and listens on port 8001.
+  # If you need to run containerized tools for debugging, re-enable this section manually.
 
 volumes:
   ollama-models:
+  chroma-cache:

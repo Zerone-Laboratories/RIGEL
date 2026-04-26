@@ -1,0 +1,16 @@
+[Unit]
+Description=Rigel MCP Tools Host Server
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/zerone/Documents/RIGEL
+ExecStart=/home/zerone/Documents/RIGEL/scripts/host-up.sh
+Restart=on-failure
+RestartSec=5
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

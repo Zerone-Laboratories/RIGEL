@@ -29,19 +29,40 @@ import uvicorn
 import sqlite3
 import hashlib
 import time
+import re
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 from core.rigel import RigelOllama, RigelGroq
+from core.rdb import DBConn
 from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer
+from core.vision import get_vision_engine
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from dotenv import load_dotenv
+from version import VERSION
 
 # Initialize logging
 syslog = SysLog(name="RigelWebServer", level="INFO", log_file="server.log")
 
+# Load environment from .env (if present)
+load_dotenv()
+
 # Database initialization
 DB_PATH = "rigel_usage.db"
+
+
+def get_tools_sse_url() -> str:
+    default_url = "http://localhost:8001/sse"
+    raw_url = os.environ.get("RIGEL_MCP_TOOLS_SSE_URL", default_url)
+    normalized_url = re.sub(r"\s+", "", raw_url)
+    if normalized_url != raw_url:
+        syslog.warning(
+            "RIGEL_MCP_TOOLS_SSE_URL contained whitespace; normalized from '%s' to '%s'",
+            raw_url,
+            normalized_url,
+        )
+    return normalized_url or default_url
 
 def init_database():
     """Initialize SQLite database for API key management and usage tracking"""
@@ -313,7 +334,11 @@ async def check_quotas_and_limits(tenant_info: Dict[str, Any], endpoint: str) ->
 rigel = None
 synthesizer = None
 recognizer = None
-inference_engine = os.getenv("INFERENCE_ENGINE", "groq").lower()  # Default to groq, can be overridden
+vision_engine = None
+session_vector_db = None
+tools_rigel = None
+tools_rigel_signature = None
+inference_engine = os.getenv("NORMAL_CHAT_ENGINE", os.getenv("INFERENCE_ENGINE", "groq")).lower()
 system_prompt = """
 "You are an academic help assistant that is created by NSBM Green University"
 "Answer all questions to the best of your ability. You should put NSBM First"
@@ -350,6 +375,8 @@ async def lifespan(app: FastAPI):
     print("  POST /query-with-memory - Inference with conversation memory")
     print("  POST /query-think    - Advanced thinking capabilities")
     print("  POST /query-with-tools - Inference with MCP tools support")
+    print("  POST /rigel-natural-language - Memory first multi agent natural language flow")
+    print("  POST /analyze-image - Analyze image content with vision engine")
     print("  POST /synthesize-text - Convert text to speech")
     print("  POST /recognize-audio - Transcribe audio file to text")
     print("  GET  /license-info   - Display license and copyright information")
@@ -364,7 +391,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="RIGEL Web Service",
     description="Web API for RIGEL Engine - An intelligent assistant with voice capabilities",
-    version="4.0.X",
+    version=VERSION,
     contact={
         "name": "Zerone Laboratories",
         "url": "https://github.com/Zerone-Laboratories/RIGEL",
@@ -384,8 +411,17 @@ class QueryRequest(BaseModel):
 class QueryWithMemoryRequest(BaseModel):
     query: str
     id: str
-    RAG: Optional[str] = "false"
-    system_prompt: Optional[str] = None
+
+class NaturalLanguageRequest(BaseModel):
+    query: str
+    id: Optional[str] = "default"
+
+class AnalyzeImageRequest(BaseModel):
+    image_path: str
+    prompt: str
+
+class AnalyzeImageResponse(BaseModel):
+    result: Dict[str, Any]
 
 class SynthesizeRequest(BaseModel):
     text: str
@@ -432,6 +468,123 @@ class InferenceEngineResponse(BaseModel):
     engine: str
     status: str
 
+def _sanitize_natural_language_output(text: str) -> str:
+    """Sanitize output to plain natural language without markdown-like formatting."""
+    if not text:
+        return ""
+
+    cleaned = re.sub(r"<\s*think\s*>.*?<\s*/\s*think\s*>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"\bthink\b.*?\s/think\b", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"^\s*CALL[\s_\-]*TOOL[\s_\-]*AGENT\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.replace("\n", " ")
+    cleaned = re.sub(r"[*_`~#<>\[\]{}|\\]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+def _extract_tool_agent_task(decision_text: str) -> Optional[str]:
+    if not decision_text:
+        return None
+
+    match = re.match(r"^\s*CALL[\s_\-]*TOOL[\s_\-]*AGENT\s*:\s*(.*)$", decision_text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+def _resolve_tool_task(decision_text: str, user_query: str, thread_id: str) -> Optional[str]:
+    tool_task = _extract_tool_agent_task(decision_text)
+    if tool_task is not None:
+        return tool_task or user_query
+
+    if _should_delegate_to_tool_agent(user_query, decision_text, thread_id):
+        return user_query
+
+    return None
+
+def _should_delegate_to_tool_agent(user_query: str, memory_decision_text: str, thread_id: str) -> bool:
+    global rigel
+
+    if rigel is None:
+        return False
+
+    router_prompt = """
+    You are a strict routing classifier.
+    Decide if the user request requires external tool execution.
+    Reply with exactly one word only: YES or NO.
+    YES if command execution, system state checks, files, apps, processes, current time/date, network, environment inspection, or other real-world retrieval/actions are needed.
+    NO if the request can be answered directly from conversation context only.
+    """
+
+    router_thread_id = f"{thread_id}_tool_router"
+    router_input = (
+        f"User request: {user_query}\n"
+        f"Memory decision draft: {memory_decision_text}\n"
+        "Return YES or NO only."
+    )
+
+    try:
+        router_response = rigel.inference_with_memory(
+            messages=[
+                ("system", router_prompt),
+                ("human", router_input)
+            ],
+            thread_id=router_thread_id,
+            RAG=False
+        )
+        response_text = router_response.content if hasattr(router_response, "content") else str(router_response)
+        return response_text.strip().upper().startswith("YES")
+    except Exception:
+        return False
+
+def _looks_like_capability_refusal(text: str) -> bool:
+    if not text:
+        return False
+
+    refusal_patterns = [
+        r"\bi\s+don'?t\s+have\s+access\b",
+        r"\bi\s+cannot\s+access\b",
+        r"\bi\s+can'?t\s+access\b",
+        r"\bno\s+real\s*[- ]?time\s+data\b",
+        r"\bi\s+am\s+unable\s+to\b",
+    ]
+    for pattern in refusal_patterns:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            return True
+    return False
+
+def _get_session_vector_db() -> Optional[DBConn]:
+    global session_vector_db
+    if session_vector_db is None:
+        try:
+            session_vector_db = DBConn()
+        except Exception as e:
+            syslog.warning(f"Vector DB unavailable: {str(e)}")
+            session_vector_db = False
+    return session_vector_db if session_vector_db is not False else None
+
+def _get_vector_session_context(session_id: str, query: str) -> str:
+    db = _get_session_vector_db()
+    if db is None:
+        return ""
+    try:
+        return db.search_session_context(session_id=session_id, query=query, n_results=4)
+    except Exception as e:
+        syslog.warning(f"Failed to retrieve vector session context: {str(e)}")
+        return ""
+
+def _save_vector_session_turn(session_id: str, user_text: str, assistant_text: str):
+    db = _get_session_vector_db()
+    if db is None:
+        return
+    try:
+        db.save_session_turn(
+            session_id=session_id,
+            user_text=user_text,
+            assistant_text=assistant_text,
+            source="web-rigel-natural-language",
+        )
+    except Exception as e:
+        syslog.warning(f"Failed to save vector session turn: {str(e)}")
+
 # Routes
 @app.get("/", response_model=dict)
 async def root():
@@ -440,7 +593,7 @@ async def root():
     
     return {
         "service": "RIGEL Web Service",
-        "version": "4.0.X",
+        "version": VERSION,
         "copyright": "Copyright (C) 2025 Zerone Laboratories",
         "license": "GNU Affero General Public License v3.0",
         "current_inference_engine": inference_engine,
@@ -450,6 +603,8 @@ async def root():
             "/query-with-memory", 
             "/query-think",
             "/query-with-tools",
+            "/rigel-natural-language",
+            "/analyze-image",
             "/synthesize-text",
             "/recognize-audio",
             "/license-info",
@@ -508,27 +663,17 @@ async def query_with_memory(request: QueryWithMemoryRequest, tenant_info: Dict[s
     start_time = time.time()
     
     try:
-        syslog.info(f"DEBUG: {request.RAG}")
-        
-        # Use provided system prompt or default to global system prompt
-        current_system_prompt = request.system_prompt if request.system_prompt else system_prompt
-        
         messages = [
             (
                 "system",
-                current_system_prompt
+                system_prompt
             ),
             (
                 "human", f"{request.query}"
             )
         ]
-        if request.RAG == "true":
-            RAG_Stat = True
-        else:
-            RAG_Stat = False
-        syslog.info(f"DEBUG: RAGSTAT = {RAG_Stat}")
         
-        response = rigel.inference_with_memory(messages=messages, thread_id=request.id, RAG=False)
+        response = rigel.inference_with_memory(messages=messages, thread_id=request.id)
         syslog.info(response)
         # Record usage
         duration_ms = int((time.time() - start_time) * 1000)
@@ -603,45 +748,34 @@ async def query_with_tools(request: QueryRequest, tenant_info: Dict[str, Any] = 
         raise HTTPException(status_code=500, detail="RIGEL backend not initialized")
     
     syslog.info(f"QueryWithTools called with query: {request.query[:100]}... by tenant {tenant_info['tenant_id']}")
-    
+
     start_time = time.time()
-    
+    tool_rigel = _get_or_create_tool_rigel()
+    if tool_rigel is None:
+        raise HTTPException(status_code=500, detail="Tool agent is not initialized")
+
+    original_continuity = tool_rigel.continuity
+
     try:
-        # Store the original continuity
-        original_continuity = rigel.continuity
-        
-        # Use provided system prompt or default to global system prompt
         current_system_prompt = request.system_prompt if request.system_prompt else system_prompt
-        
-        # Temporarily modify the continuity to include the system prompt
-        modified_continuity = f"""
+        tool_rigel.continuity = f"""
         {current_system_prompt}
-        
-        {rigel.continuity}
+
+        {original_continuity}
         """
-        
-        # Set the modified continuity
-        rigel.continuity = modified_continuity
-        
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(_run_async_tools_query, request.query)
             result = future.result(timeout=120)
-        
-        # Restore original continuity
-        rigel.continuity = original_continuity
-        
-        if hasattr(result, 'content'):
-            response_content = result.content
-        else:
-            response_content = str(result)
-        
-        # Record usage (tools use more resources, count as 3x tokens)
+
+        response_content = result.content if hasattr(result, "content") else str(result)
+
         duration_ms = int((time.time() - start_time) * 1000)
         tokens_estimated = (len(request.query.split()) + len(response_content.split())) * 3
         record_usage(tenant_info["tenant_id"], "query-with-tools", tokens_estimated, duration_ms)
-            
+
         return QueryResponse(response=response_content)
-        
+
     except concurrent.futures.TimeoutError:
         error_msg = "Query with tools timed out after 2 minutes"
         syslog.error(error_msg)
@@ -650,16 +784,233 @@ async def query_with_tools(request: QueryRequest, tenant_info: Dict[str, Any] = 
         error_msg = f"Error occurred during tool-based inference: {str(e)}"
         syslog.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
+    finally:
+        tool_rigel.continuity = original_continuity
 
 def _run_async_tools_query(query):
     """Helper function to run async tools query"""
-    global rigel
+    tool_rigel = _get_or_create_tool_rigel()
+    if tool_rigel is None:
+        raise RuntimeError("Tool agent is not initialized")
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        return loop.run_until_complete(rigel.inference_with_tools(query))
+        return loop.run_until_complete(tool_rigel.inference_with_tools(query))
     finally:
         loop.close()
+
+def _execute_nl_tool_task(tool_task: str, thread_id: str):
+    return _run_async_tools_query(tool_task)
+
+def _get_or_create_tool_rigel():
+    global tools_rigel, tools_rigel_signature
+
+    tool_engine = os.getenv("TOOL_CALL_ENGINE", "ollama").lower()
+    default_tool_model = "qwen3:0.6b" if tool_engine == "ollama" else os.getenv("TOOL_CALL_GROQ_MODEL", "qwen/qwen3-32b")
+    tool_model = os.getenv("TOOL_CALL_MODEL", default_tool_model)
+    tool_temp = float(os.getenv("TOOL_TEMPERATURE", os.getenv("TEMPERATURE", "0.0")))
+    tools_sse_url = get_tools_sse_url()
+
+    current_signature = (tool_engine, tool_model, tool_temp, tools_sse_url)
+    if tools_rigel is not None and tools_rigel_signature == current_signature:
+        return tools_rigel
+
+    tool_mcp = MultiServerMCPClient(
+        {
+            "rigel tools": {
+                "url": tools_sse_url,
+                "transport": "sse",
+            }
+        },
+    )
+
+    tools_rigel = (
+        RigelGroq(model_name=tool_model, temp=tool_temp, mcp_endpoint=tool_mcp)
+        if tool_engine == "groq"
+        else RigelOllama(model_name=tool_model, mcp_endpoint=tool_mcp)
+    )
+    tools_rigel_signature = current_signature
+    return tools_rigel
+
+@app.post("/rigel-natural-language", response_model=QueryResponse)
+async def rigel_natural_language(request: NaturalLanguageRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
+    """Memory-first multi-agent endpoint with tool delegation and natural language-only output."""
+    global rigel, system_prompt
+
+    await check_quotas_and_limits(tenant_info, "rigel-natural-language")
+
+    if rigel is None:
+        raise HTTPException(status_code=500, detail="RIGEL backend not initialized")
+
+    start_time = time.time()
+    thread_id = request.id or "default"
+
+    try:
+        current_system_prompt = system_prompt
+        session_context = _get_vector_session_context(thread_id, request.query)
+        user_input_with_context = (
+            f"User request: {request.query}\nSession context: {session_context}"
+            if session_context else f"User request: {request.query}"
+        )
+
+        memory_agent_prompt = f"""
+        {current_system_prompt}
+
+        You are the memory agent.
+        You do not have tool capabilities.
+
+        Decide if the task requires tools.
+        If tools are needed, reply exactly in this format:
+        CALL_TOOL_AGENT: <single concise task for the tool agent>
+
+        If tools are not needed, answer directly.
+
+        Style rules for your final user-facing message:
+        Use only natural language.
+        Keep it short and concise whenever possible.
+        No lists.
+        No tutorials.
+        No markdown.
+        """
+
+        memory_decision = rigel.inference_with_memory(
+            messages=[
+                ("system", memory_agent_prompt),
+                ("human", user_input_with_context)
+            ],
+            thread_id=thread_id,
+            RAG=False
+        )
+
+        decision_text = memory_decision.content if hasattr(memory_decision, "content") else str(memory_decision)
+        decision_text = decision_text.strip()
+
+        delegated = False
+        tool_task = _resolve_tool_task(decision_text, request.query, thread_id)
+
+        response_content = decision_text
+        max_tool_rounds = int(os.getenv("NATURAL_LANGUAGE_MAX_TOOL_ROUNDS", "3"))
+        round_count = 0
+
+        while tool_task is not None and round_count < max_tool_rounds:
+            delegated = True
+            round_count += 1
+            tool_task = tool_task or request.query
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                tool_future = executor.submit(_execute_nl_tool_task, tool_task, thread_id)
+                tool_result = tool_future.result(timeout=120)
+
+            tool_output_text = tool_result.content if hasattr(tool_result, "content") else str(tool_result)
+
+            post_tool_prompt = f"""
+            {current_system_prompt}
+
+            You are the memory agent.
+            You do not have tool capabilities.
+            You now received tool output.
+
+            If another tool call is still required, reply exactly:
+            CALL_TOOL_AGENT: <single concise follow-up task>
+
+            If no further tool call is needed, provide the final response naturally.
+
+            Style rules:
+            Use only natural language.
+            Keep it short and concise whenever possible.
+            No lists.
+            No tutorials.
+            No markdown.
+            """
+
+            post_tool_decision = rigel.inference_with_memory(
+                messages=[
+                    ("system", post_tool_prompt),
+                    (
+                        "human",
+                        f"User request: {request.query}\nSession context: {session_context}\nTool output round {round_count}: {tool_output_text}"
+                    )
+                ],
+                thread_id=thread_id,
+                RAG=False
+            )
+            response_content = post_tool_decision.content if hasattr(post_tool_decision, "content") else str(post_tool_decision)
+            response_content = response_content.strip()
+            tool_task = _resolve_tool_task(response_content, request.query, thread_id)
+
+        if (not delegated) and _looks_like_capability_refusal(response_content):
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                tool_future = executor.submit(_execute_nl_tool_task, request.query, thread_id)
+                tool_result = tool_future.result(timeout=120)
+
+            tool_output_text = tool_result.content if hasattr(tool_result, "content") else str(tool_result)
+
+            summarize_prompt = f"""
+            {current_system_prompt}
+
+            You are the memory agent.
+            The tool agent has completed the task.
+            Summarize the result for the user.
+
+            Style rules:
+            Use only natural language.
+            Keep it short and concise whenever possible.
+            No lists.
+            No tutorials.
+            No markdown.
+            """
+
+            summarized = rigel.inference_with_memory(
+                messages=[
+                    ("system", summarize_prompt),
+                    ("human", f"User request: {request.query}\nSession context: {session_context}\nTool output: {tool_output_text}")
+                ],
+                thread_id=thread_id,
+                RAG=False
+            )
+            response_content = summarized.content if hasattr(summarized, "content") else str(summarized)
+
+        response_content = _sanitize_natural_language_output(response_content)
+        _save_vector_session_turn(thread_id, request.query, response_content)
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        tokens_estimated = (len(request.query.split()) + len(response_content.split())) * 3
+        record_usage(tenant_info["tenant_id"], "rigel-natural-language", tokens_estimated, duration_ms)
+
+        return QueryResponse(response=response_content)
+
+    except concurrent.futures.TimeoutError:
+        error_msg = "Natural language tool execution timed out after 2 minutes"
+        syslog.error(error_msg)
+        raise HTTPException(status_code=408, detail=error_msg)
+    except Exception as e:
+        error_msg = f"Error in rigel-natural-language flow: {str(e)}"
+        syslog.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+
+@app.post("/analyze-image", response_model=AnalyzeImageResponse)
+async def analyze_image(request: AnalyzeImageRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
+    """Analyze an image using the vision engine."""
+    global vision_engine
+
+    await check_quotas_and_limits(tenant_info, "analyze-image")
+
+    if vision_engine is None:
+        vision_engine = get_vision_engine()
+
+    if not os.path.exists(request.image_path):
+        raise HTTPException(status_code=404, detail=f"Image file not found: {request.image_path}")
+
+    try:
+        result = vision_engine.analyze_image(request.image_path, request.prompt)
+        if isinstance(result, dict):
+            return AnalyzeImageResponse(result=result)
+        return AnalyzeImageResponse(result={"analysis": result})
+    except Exception as e:
+        error_msg = f"Error analyzing image: {str(e)}"
+        syslog.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/synthesize-text", response_model=SynthesizeResponse)
 async def synthesize_text(request: SynthesizeRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
@@ -754,7 +1105,7 @@ async def get_license_info():
     """Return license information for AGPL compliance - no auth required"""
     license_info = {
         "name": "RIGEL ENGINE",
-        "version": "4.0.X",
+        "version": VERSION,
         "license": "GNU Affero General Public License v3.0",
         "source": "https://github.com/Zerone-Laboratories/RIGEL",
         "copyright": "Copyright (C) 2025 Zerone Laboratories",
@@ -929,7 +1280,7 @@ async def get_inference_engine(_: bool = Depends(require_admin_key)):
 # Initialize RIGEL backend
 async def initialize_rigel():
     """Initialize RIGEL backend and voice components"""
-    global rigel, synthesizer, recognizer, inference_engine
+    global rigel, synthesizer, recognizer, inference_engine, tools_rigel, tools_rigel_signature
     
     print("RIGEL Web Service")
     print("Copyright (C) 2025 Zerone Laboratories")
@@ -937,11 +1288,12 @@ async def initialize_rigel():
     print("This is free software; see the source for copying conditions.")
     print("")
     
-    # Initialize MCP client
+    # Initialize MCP client (configurable via env var, fallback to localhost)
+    tools_sse_url = get_tools_sse_url()
     default_mcp = MultiServerMCPClient(
         {
             "rigel tools": {
-                "url": "http://rigel-tools-server:8001/sse",
+                "url": tools_sse_url,
                 "transport": "sse",
             }
         },
@@ -1000,7 +1352,9 @@ async def initialize_rigel():
         except Exception as e:
             print(f"Error during Ollama setup: {e}")
         
-        rigel = RigelOllama(model_name="llama3.2", mcp_endpoint=default_mcp)
+        # Choose model from env: NORMAL_CHAT_MODEL > GENERAL_LLM_MODEL > OLLAMA_MODEL > default
+        model_to_use = os.getenv("NORMAL_CHAT_MODEL") or os.getenv("GENERAL_LLM_MODEL") or os.getenv("OLLAMA_MODEL", "llama3.2")
+        rigel = RigelOllama(model_name=model_to_use, mcp_endpoint=default_mcp)
         print("RIGEL initialized with OLLAMA backend")
         print("Initializing RIGEL Vector DB... [BACKGROUND]")
         # Initialize database in the background
@@ -1011,7 +1365,9 @@ async def initialize_rigel():
         print("RIGEL Vector DB initialization started in background")
 
     else:  # Default to GROQ
-        rigel = RigelGroq(model_name="openai/gpt-oss-120b", mcp_endpoint=default_mcp)
+        # Choose model from env: NORMAL_CHAT_MODEL > GENERAL_LLM_MODEL > GROQ_MODEL > default
+        model_to_use = os.getenv("NORMAL_CHAT_MODEL") or os.getenv("GENERAL_LLM_MODEL") or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        rigel = RigelGroq(model_name=model_to_use, mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
         print("Initializing RIGEL Vector DB... [BACKGROUND]")
         # Initialize database in the background
@@ -1024,11 +1380,14 @@ async def initialize_rigel():
     print("Initializing voice synthesis and recognition...")
     try:
         synthesizer = Synthesizer(mode="chunk")
-        recognizer = Recognizer(model="tiny")
+        recognizer = Recognizer(model=os.getenv("VOICE_RECOGNITION_MODEL", "tiny"))
         print("Voice components initialized successfully")
     except Exception as e:
         print(f"Warning: Failed to initialize voice components: {e}")
         print("Voice features may not be available")
+
+    tools_rigel = None
+    tools_rigel_signature = None
 
 if __name__ == "__main__":
     print("Starting RIGEL Web Server...")

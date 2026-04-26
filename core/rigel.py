@@ -15,8 +15,10 @@
 
 # HELLO WORLD
 
-__RIGEL = """
-RIGEL V4.0 - Main Source
+from version import VERSION
+
+__RIGEL = f"""
+RIGEL V{VERSION} - Main Source
                                                                               :::::   :::::
                                                                         ::                     ::
                                                                      :                             :
@@ -113,6 +115,7 @@ import random
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from core.rdb import DBConn
 from typing import Dict, List, Any, Optional, Union, Tuple
+from datetime import datetime
 
 # Import OSTools if available
 try:
@@ -123,7 +126,7 @@ except ImportError:
 
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
-hello_string = "Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]\n"
+hello_string = f"Zerone Laboratories Systems - RIGEL Engine v{VERSION}[Alpha]\n"
 default_mcp = MultiServerMCPClient(
             {
                 "rigel tools": {
@@ -148,6 +151,10 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.client = None
         self.ragdb = None
         self._initialized = False
+        self.tools_memory_store: Dict[str, List[Dict[str, str]]] = {}
+        self.vectorstore = DBConn()
+        print("VectorStore Preflight")
+        self.vectorstore.search_session_context(session_id='1234', query="preflight", n_results=4)
         self.server_params = StdioServerParameters(
             command="python",
             args=["/home/zerone/Projects/RIGEL_SERVICE/core/mcp/rigel_tools_server.py"],
@@ -355,7 +362,40 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             syslog.info("Cleaning Up MCP")
             await self.cleanup_mcp()
 
-    def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default", RAG: bool = False):
+    def _build_tools_memory_context(self, thread_id: str, max_turns: int = 8) -> str:
+        turns = self.tools_memory_store.get(thread_id, [])
+        if not turns:
+            return ""
+
+        context_lines = []
+        for turn in turns[-max_turns:]:
+            context_lines.append(f"User: {turn.get('user', '')}")
+            context_lines.append(f"Assistant: {turn.get('assistant', '')}")
+        return "\n".join(context_lines)
+
+    async def inference_with_tools_and_memory(self, prompt: str, thread_id: str = "default"):
+        history_context = self._build_tools_memory_context(thread_id)
+        if history_context:
+            full_prompt = (
+                "Conversation history:\n"
+                f"{history_context}\n\n"
+                "Current user request:\n"
+                f"{prompt}"
+            )
+        else:
+            full_prompt = prompt
+
+        response = await self.inference_with_tools(full_prompt)
+        response_text = response.content if hasattr(response, "content") else str(response)
+
+        thread_history = self.tools_memory_store.setdefault(thread_id, [])
+        thread_history.append({"user": prompt, "assistant": response_text})
+        if len(thread_history) > 20:
+            del thread_history[:-20]
+
+        return response
+
+    def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default", RAG: bool = True):
         """
         use this function as follows
 
@@ -368,21 +408,47 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             AIMessage with response content
         """
         system_message = ""
+        summerization_agent_message = """
+        - Disable Reasoning: True
+        - Disable think loop: True 
+        You are a summerization agent. you will receive data from a vectordb,
+        you have to provide a summary of those previous interactions.
+        """
+        # if RAG:
+        #     data = self.ragdb.run_similar_search(next((msg for role, msg in messages if role == "human"), ""))
+        #     syslog.info(f"RAG Data Retrieved: {data}")
+        #     messages.append(("RAG",f"{data}"))
 
-        syslog.info(f"RAG IS CURRENTLY {RAG}")
         if RAG:
-            data = self.ragdb.run_similar_search(next((msg for role, msg in messages if role == "human"), ""))
-            syslog.info(f"RAG Data Retrieved: {data}")
-            messages.append(("RAG",f"{data}"))
+            syslog.info(f"RIGEL has previous session contexts")
+            last_message = messages[-1][1]
+            data = self.vectorstore.search_session_context(session_id=thread_id, query=last_message, n_results=4)
+            # Escape literal curly braces to prevent Langchain prompt formatting errors
+            data = data.replace('{', '{{').replace('}', '}}')
+
+            summarization_prompt = [
+                ("system", summerization_agent_message),
+                ("human", f"Here is some retrieved context from the database:\n\n{data}\n\nPlease provide a concise summary of this information that might be relevant to the user's query.")
+            ]
+
+        
+            summerization_agent_call = self.inference(
+                summarization_prompt
+            )
+            # Create session if not exist
+            # if not thread_id in self.vector_store_sessions:
+            #     self.vector_store_sessions[thread_id] = ClientSession(self.server_params)
+            #     syslog.info(f"Created new MCP session for thread_id: {thread_id}")
 
         formatted_messages = []
         for role, content in messages:
             if role == "system":
                 syslog.info(f"Adding system message: {content}")
-                system_message  = content
-                formatted_messages.append(SystemMessage(content=content))
-            if role == "RAG":
-                formatted_messages.append({"role": "user", "content": content})
+                current_time = datetime.now().isoformat()
+                time_context = f"\n\n<CurrentTime>\nThe current system time is: {current_time}\n</CurrentTime>"
+                rag_summary = ("\n\n<PermenantMemoryRecall>\n" + summerization_agent_call.content + "\n</PermenantMemoryRecall>") if RAG else ""
+                system_message = content + time_context + rag_summary
+                formatted_messages.append(SystemMessage(content=system_message))
             elif role == "human":
                 formatted_messages.append({"role": "user", "content": content})
             elif role == "ai":
@@ -399,6 +465,17 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         )
         last_message = response["messages"][-1]
         syslog.info(response)
+        # Add content to vectordb
+        human = next((msg for role, msg in messages if role == "human"), "")
+        assistant = last_message.content if hasattr(last_message, "content") else str(last_message)
+        syslog.info(f"[VECTOR-STORE] Adding messagess to vector store. Human: {human}, Assistant: {assistant}")
+        self.vectorstore.save_session_turn(
+            session_id=thread_id,
+            user_text=human,
+            assistant_text=assistant,
+            source="conversation-history"
+        )
+        print(f"\n\n\n\n\nSYSTEM_MESSAGE:{system_message}\n\n\n\n\n")
         return AIMessage(content=last_message.content)
 
     def _setup_workflow(self, system):
@@ -647,18 +724,26 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         if model:
             self.llm.model = model
         return super().inference(messages)
-    
-class RigelAutoSwap(Rigel):
-    def __init__(self, model_name: str = "llama-swap-model", base_url: str = "http://localhost:12432", temp: float = 0.7):
-        super().__init__(model_name=model_name, chatmode="llama-swap")
-        self.base_url = base_url
-        self.llm = ChatOpenAI(
-            model=self.model,
-            base_url=f"{self.base_url}/v1",
-            api_key="not-needed",
-            temperature=temp,
-        )
-        syslog.info(f"Initialized RIGEL with llama.cpp server at {self.base_url}")
+
+class RigelTransformers(Rigel): # RIGEL with transformers backend (local inference)
+    def __init__(self, model_name: str = "local-transformers-model",  mcp_endpoint = default_mcp):
+        super().__init__(model_name=model_name, chatmode="transformers", mcp_endpoint=mcp_endpoint)
+        # Initialize your local transformers-based LLM here
+        # For example, you could use Hugging Face's transformers library to load a model
+        # self.llm = YourLocalTransformersLLM(model_name=self.model)
+        syslog.warning("Transformers backend is not implemented yet. This is a placeholder.")
+  
+# class RigelAutoSwap(Rigel):
+#     def __init__(self, model_name: str = "llama-swap-model", base_url: str = "http://localhost:12432", temp: float = 0.7):
+#         super().__init__(model_name=model_name, chatmode="llama-swap")
+#         self.base_url = base_url
+#         self.llm = ChatOpenAI(
+#             model=self.model,
+#             base_url=f"{self.base_url}/v1",
+#             api_key="not-needed",
+#             temperature=temp,
+#         )
+#         syslog.info(f"Initialized RIGEL with llama.cpp server at {self.base_url}")
 
 
 # Some Demos

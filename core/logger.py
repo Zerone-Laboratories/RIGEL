@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import colorama
 from colorama import Fore, Style
 colorama.init(autoreset=True)
@@ -47,7 +48,16 @@ class SysLog:
         self.logger.addHandler(console_handler)
         
         if log_file:
-            file_handler = logging.FileHandler(log_file)
+            # Route relative log filenames into the Logs directory.
+            # Absolute path names are respected.
+            if not os.path.isabs(log_file):
+                log_file = os.path.join('Logs', log_file)
+
+            log_file_abs = os.path.abspath(log_file)
+            log_dir = os.path.dirname(log_file_abs)
+            os.makedirs(log_dir, exist_ok=True)
+
+            file_handler = logging.FileHandler(log_file_abs)
             file_handler.setLevel(level)
             # Use regular formatter for file (no colors in file)
             file_formatter = Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')

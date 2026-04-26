@@ -5,6 +5,24 @@ All notable changes to RIGEL Engine will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.X] - 2026-04-26
+
+### Added
+- **Unified versioning**: Centralized `VERSION` constant in `version.py` for consistent release metadata across web, D-Bus, and core interfaces.
+- **Vector memory retriever for query-with-memory**: Added session-based vector retrieval and summarization to `/query-with-memory` for more relevant historical context.
+- **Natural language routing endpoint**: Added `/rigel-natural-language` to support memory-first natural language tool delegation and follow-up tool interactions.
+- **Image analysis endpoint**: Added `/analyze-image` REST endpoint for vision-based image understanding via the shared vision engine.
+- **Web API documentation updates**: Expanded endpoint documentation and examples in `README.md`.
+
+### Changed
+- **Release bump**: Updated all runtime and interface version strings from `4.0.X` to `5.0.X`.
+- **Documentation**: Refreshed README to reflect new web API capabilities and improved feature summaries.
+
+### Fixed
+- **Version consistency**: Removed hardcoded version strings from web server, D-Bus server, and core engine banner.
+
+---
+
 ## [4.0.X] - 2025-06-21
 
 ### Added
