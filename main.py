@@ -25,18 +25,17 @@ import os
 import sys
 import subprocess
 from dotenv import load_dotenv
+from version import VERSION
 
 def print_banner():
-    """Display the RIGEL banner"""
     print("=" * 60)
-    print("  RIGEL Engine v4.0.X - Multi-LLM Agentic AI Assistant")
+    print(f"  RIGEL Engine v{VERSION} - Multi-LLM Agentic AI Assistant")
     print("  Copyright (C) 2025 Zerone Laboratories")
     print("  Licensed under GNU Affero General Public License v3.0")
     print("=" * 60)
     print()
 
 def print_menu():
-    """Display the server selection menu"""
     print("Choose RIGEL server mode:")
     print()
     print("  1. D-Bus Server (Recommended for Linux desktop integration)")
@@ -54,10 +53,8 @@ def print_menu():
     print()
 
 def check_dependencies():
-    """Check if required dependencies are available"""
     issues = []
-    
-    # Check for D-Bus dependencies
+
     try:
         import pydbus
         import gi
@@ -65,8 +62,7 @@ def check_dependencies():
     except ImportError:
         dbus_available = False
         issues.append("D-Bus support not available (missing pydbus or gi)")
-    
-    # Check for Web server dependencies
+
     try:
         import fastapi
         import uvicorn
@@ -74,7 +70,7 @@ def check_dependencies():
     except ImportError:
         web_available = False
         issues.append("Web server support not available (missing fastapi or uvicorn)")
-    
+
     # Check for core RIGEL dependencies
     try:
         from core.rigel import RigelOllama, RigelGroq
@@ -83,7 +79,7 @@ def check_dependencies():
     except ImportError:
         core_available = False
         issues.append("RIGEL core modules not available")
-    
+
     return {
         'dbus': dbus_available,
         'web': web_available,
@@ -96,7 +92,7 @@ def run_dbus_server():
     print("Starting RIGEL D-Bus Server...")
     print("Note: D-Bus server requires Linux with D-Bus support")
     print()
-    
+
     try:
         subprocess.run([sys.executable, "dbus_server.py"], check=True)
     except subprocess.CalledProcessError as e:
@@ -112,7 +108,7 @@ def run_web_server():
     print("Server will be available at: http://localhost:8000")
     print("API documentation will be available at: http://localhost:8000/docs")
     print()
-    
+
     try:
         subprocess.run([sys.executable, "web_server.py"], check=True)
     except subprocess.CalledProcessError as e:
@@ -127,38 +123,38 @@ def main():
     # Load environment from .env so child processes pick up variables in same shell
     load_dotenv()
     print_banner()
-    
+
     # Check dependencies
     deps = check_dependencies()
-    
+
     if not deps['core']:
-        print("❌ ERROR: RIGEL core modules are not available!")
+        print(" ERROR: RIGEL core modules are not available!")
         print("Please ensure you have installed the required dependencies:")
         print("  pip install -r requirements.txt")
         print()
         for issue in deps['issues']:
             print(f"  - {issue}")
         sys.exit(1)
-    
+
     # Show warnings for missing optional dependencies
     if deps['issues']:
-        print("⚠️  WARNINGS:")
+        print("  WARNINGS:")
         for issue in deps['issues']:
             print(f"  - {issue}")
         print()
-    
+
     while True:
         print_menu()
-        
+
         try:
             choice = input("Enter your choice (1-3): ").strip()
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
             sys.exit(0)
-        
+
         if choice == "1":
             if not deps['dbus']:
-                print("❌ D-Bus server is not available due to missing dependencies.")
+                print(" D-Bus server is not available due to missing dependencies.")
                 print("Please install D-Bus dependencies:")
                 print("  # Ubuntu/Debian:")
                 print("  sudo apt-get install python3-gi python3-gi-cairo gir1.2-gtk-3.0")
@@ -169,31 +165,31 @@ def main():
                 print("  pip install pydbus")
                 print()
                 continue
-            
+
             if run_dbus_server():
                 break
             else:
                 input("Press Enter to continue...")
-                
+
         elif choice == "2":
             if not deps['web']:
-                print("❌ Web server is not available due to missing dependencies.")
+                print(" Web server is not available due to missing dependencies.")
                 print("Please install Web server dependencies:")
                 print("  pip install fastapi uvicorn")
                 print()
                 continue
-            
+
             if run_web_server():
                 break
             else:
                 input("Press Enter to continue...")
-                
+
         elif choice == "3":
             print("Goodbye!")
             sys.exit(0)
-            
+
         else:
-            print("❌ Invalid choice. Please enter 1, 2, or 3.")
+            print(" Invalid choice. Please enter 1, 2, or 3.")
             print()
 
 if __name__ == "__main__":

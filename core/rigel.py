@@ -15,8 +15,10 @@
 
 # HELLO WORLD
 
-__RIGEL = """
-RIGEL V4.0 - Main Source
+from version import VERSION
+
+__RIGEL = f"""
+RIGEL V{VERSION} - Main Source
                                                                               :::::   :::::
                                                                         ::                     ::
                                                                      :                             :
@@ -93,14 +95,12 @@ RIGEL V4.0 - Main Source
                                                                   :::                               :::
                                                                            ::::::::: :::::::::
 """
-from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from core.logger import SysLog
 import os
 import glob
 import getpass
-import subprocess
-import base64
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
@@ -113,10 +113,9 @@ import re
 from langchain.chains import ConversationChain
 import random
 from langchain_mcp_adapters.client import MultiServerMCPClient
-import os
 from core.rdb import DBConn
 from typing import Dict, List, Any, Optional, Union, Tuple
-import httpx
+from datetime import datetime
 
 # Import OSTools if available
 try:
@@ -127,21 +126,18 @@ except ImportError:
 
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
-hello_string = "Zerone Laboratories Systems - RIGEL Engine v4.0[Alpha]\n"
-
-# Configure MCP tools endpoint via environment variable, fallback to localhost
-_TOOLS_SSE_URL = os.environ.get("RIGEL_MCP_TOOLS_SSE_URL", "http://localhost:8001/sse")
+hello_string = f"Zerone Laboratories Systems - RIGEL Engine v{VERSION}[Alpha]\n"
 default_mcp = MultiServerMCPClient(
-    {
-        "rigel tools": {
-            "url": _TOOLS_SSE_URL,
-            "transport": "sse",
-        }
-    },
-)
+            {
+                "rigel tools": {
+                    "url": "http://rigel-tools-server:8001/sse",
+                    "transport": "sse",
+                }
+            },
+        )
 
 class Rigel: # RIGEL Super Class. Use this to create derived classes
-    def __init__(self, model_name: str = "llama3.2", chatmode: str = "ollama", mcp_endpoint = default_mcp, temp=0.7):
+    def __init__(self, model_name: str = "llama3.2", chatmode: str = "ollama", mcp_endpoint = default_mcp):
         self.model = model_name
         self.chatmode = chatmode
         self.llm = None
@@ -151,11 +147,14 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.workflow = StateGraph(state_schema=MessagesState)
         self.memory = None
         self.app = None
-        self.temp = temp
         self.agent = None
         self.client = None
         self.ragdb = None
         self._initialized = False
+        self.tools_memory_store: Dict[str, List[Dict[str, str]]] = {}
+        self.vectorstore = DBConn()
+        print("VectorStore Preflight")
+        self.vectorstore.search_session_context(session_id='1234', query="preflight", n_results=4)
         self.server_params = StdioServerParameters(
             command="python",
             args=["/home/zerone/Projects/RIGEL_SERVICE/core/mcp/rigel_tools_server.py"],
@@ -278,16 +277,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
     async def inference_with_tools(self, prompt, tools=None):
         if not self._initialized:
-            try:
-                await self.__init_mcp()
-            except Exception as e:
-                syslog.error(f"Failed to initialize MCP client: {e}")
-                hint = (
-                    f"Tools unavailable. Could not connect to MCP tools server at {_TOOLS_SSE_URL}.\n"
-                    "Start the built-in server with: python core/mcp/rigel_tools_server.py\n"
-                    "Or set RIGEL_MCP_TOOLS_SSE_URL to your tools server SSE endpoint."
-                )
-                return AIMessage(content=f"Error occurred during tool-based inference: {str(e)}\n\n{hint}")
+            await self.__init_mcp()
 
         messages = [
             SystemMessage(content=self.continuity),
@@ -296,89 +286,116 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
         max_iterations = 10
         iteration_count = 0
-        
-        full_process_log = [] 
+        complete_output = []
 
         try:
             while iteration_count < max_iterations:
                 iteration_count += 1
                 syslog.info(f"Inference iteration {iteration_count}")
-                
-                result = None
-                for attempt in range(2):
+                for i in range(0,2):
                     try:
                         result = await self.agent.ainvoke({"messages": messages})
                         break
                     except Exception as e:
-                        syslog.error(f"Inference Attempt {attempt+1} Failed: {str(e)}")
-                        if attempt == 1: # Last attempt failed
-                            error_msg = f"[System Error]: Agent invocation failed after retries: {str(e)}"
-                            full_process_log.append(error_msg)
-                            return AIMessage(content="\n\n".join(full_process_log))
+                        syslog.error(f"Inference Failed !, Retrying... Error: {str(e)}")
+                        result = f"Error occured with inference !"
+                        pass
+                new_messages = result["messages"][len(messages):]
 
-                current_total_messages = result["messages"]
-                new_messages_count = len(current_total_messages) - len(messages)
-                new_messages = current_total_messages[-new_messages_count:]
-
-                iteration_buffer = []
-
+                iteration_output = []
                 for msg in new_messages:
                     if hasattr(msg, 'content') and msg.content:
-                        content_str = str(msg.content)
-                        iteration_buffer.append(content_str)
-                    
-                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        iteration_output.append(str(msg.content))
+                    elif hasattr(msg, 'tool_calls') and msg.tool_calls:
                         for tool_call in msg.tool_calls:
-                            name = tool_call.get('name', 'unknown')
-                            args = tool_call.get('args', {})
-                            log_entry = f"🛠️ [Tool Call - {name}]: {args}"
-                            iteration_buffer.append(log_entry)
+                            if isinstance(tool_call, dict):
+                                tool_name = tool_call.get('name', 'unknown')
+                                iteration_output.append(f"Tool: {tool_name}")
+                    elif hasattr(msg, 'name') and hasattr(msg, 'content'):
+                        iteration_output.append(f"Tool Result ({msg.name}): {msg.content}")
+                    else:
+                        # Safe conversion to string regardless of the object type
+                        iteration_output.append(str(msg))
 
-                    if msg.type == 'tool' or msg.type == 'function':
-                        if not (hasattr(msg, 'content') and msg.content):
-                            log_entry = f"[Tool Result]: {str(msg)}"
-                            iteration_buffer.append(log_entry)
+                final_message = result["messages"][-1]
+                syslog.info(f"Currently Processing: {final_message}")
 
-                full_process_log.extend(iteration_buffer)
-                messages = current_total_messages
-                final_message = messages[-1]
-                syslog.info(f"Iteration {iteration_count} complete. Last msg type: {type(final_message)}")
+                if iteration_output:
+                    complete_output.extend(iteration_output)
                 if hasattr(final_message, 'content') and final_message.content:
                     response_content = final_message.content
-                    
+
                     continuity_breaker_found = False
                     for pattern in self.continuity_patterns:
                         if pattern.search(response_content):
-                            syslog.info("Continuity breaker detected. Task Complete.")
+                            syslog.info(f"Continuity breaker detected: {response_content}")
                             continuity_breaker_found = True
                             break
 
                     if continuity_breaker_found:
-                        return AIMessage(content="\n\n".join(full_process_log))
+                        full_response = "\n\n".join(complete_output)
+                        return AIMessage(content=full_response)
 
-                    syslog.info(f"No continuity breaker. Continuing execution (Iteration {iteration_count})")
-                    
+                    syslog.info(f"No continuity breaker detected. Current output: {response_content}")
+                    syslog.info(f"Continuing with task execution (iteration {iteration_count})")
+                    messages = result["messages"]
                     messages.append({"role": "user", "content": "Continue with the task."})
+
                 else:
-                    pass
+                    return AIMessage(content="\n\n".join(complete_output))
 
             syslog.warning(f"Reached maximum iterations ({max_iterations}) without continuity breaker")
-            timeout_msg = f"\n\n[System]: Task execution reached maximum iterations ({max_iterations}) without explicit completion."
-            full_process_log.append(timeout_msg)
-            
-            return AIMessage(content="\n\n".join(full_process_log))
+            if complete_output:
+                full_response = "\n\n".join(complete_output)
+                return AIMessage(content=f"{full_response}\n\nTask execution reached maximum iterations ({max_iterations}) without completion.")
+            else:
+                return AIMessage(content=f"Task execution reached maximum iterations ({max_iterations}) without completion.")
 
         except Exception as e:
-            syslog.error(f"Critical error in inference_with_tools: {e}")
-            error_msg = f"\n\n[System Critical Error]: {str(e)}"
-            full_process_log.append(error_msg)
-            return AIMessage(content="\n\n".join(full_process_log))
-            
+            syslog.error(f"Error in inference_with_tools: {e}")
+            if complete_output:
+                full_response = "\n\n".join(complete_output)
+                return AIMessage(content=f"{full_response}\n\nError occurred during tool-based inference: {str(e)}")
+            else:
+                return AIMessage(content=f"Error occurred during tool-based inference: {str(e)}")
         finally:
             syslog.info("Cleaning Up MCP")
             await self.cleanup_mcp()
 
-    def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default", RAG: bool = False):
+    def _build_tools_memory_context(self, thread_id: str, max_turns: int = 8) -> str:
+        turns = self.tools_memory_store.get(thread_id, [])
+        if not turns:
+            return ""
+
+        context_lines = []
+        for turn in turns[-max_turns:]:
+            context_lines.append(f"User: {turn.get('user', '')}")
+            context_lines.append(f"Assistant: {turn.get('assistant', '')}")
+        return "\n".join(context_lines)
+
+    async def inference_with_tools_and_memory(self, prompt: str, thread_id: str = "default"):
+        history_context = self._build_tools_memory_context(thread_id)
+        if history_context:
+            full_prompt = (
+                "Conversation history:\n"
+                f"{history_context}\n\n"
+                "Current user request:\n"
+                f"{prompt}"
+            )
+        else:
+            full_prompt = prompt
+
+        response = await self.inference_with_tools(full_prompt)
+        response_text = response.content if hasattr(response, "content") else str(response)
+
+        thread_history = self.tools_memory_store.setdefault(thread_id, [])
+        thread_history.append({"user": prompt, "assistant": response_text})
+        if len(thread_history) > 20:
+            del thread_history[:-20]
+
+        return response
+
+    def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default", RAG: bool = True):
         """
         use this function as follows
 
@@ -391,21 +408,47 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             AIMessage with response content
         """
         system_message = ""
+        summerization_agent_message = """
+        - Disable Reasoning: True
+        - Disable think loop: True 
+        You are a summerization agent. you will receive data from a vectordb,
+        you have to provide a summary of those previous interactions.
+        """
+        # if RAG:
+        #     data = self.ragdb.run_similar_search(next((msg for role, msg in messages if role == "human"), ""))
+        #     syslog.info(f"RAG Data Retrieved: {data}")
+        #     messages.append(("RAG",f"{data}"))
 
-        syslog.info(f"RAG IS CURRENTLY {RAG}")
         if RAG:
-            data = self.ragdb.run_similar_search(next((msg for role, msg in messages if role == "human"), ""))
-            syslog.info(f"RAG Data Retrieved: {data}")
-            messages.append(("RAG",f"{data}"))
+            syslog.info(f"RIGEL has previous session contexts")
+            last_message = messages[-1][1]
+            data = self.vectorstore.search_session_context(session_id=thread_id, query=last_message, n_results=4)
+            # Escape literal curly braces to prevent Langchain prompt formatting errors
+            data = data.replace('{', '{{').replace('}', '}}')
+
+            summarization_prompt = [
+                ("system", summerization_agent_message),
+                ("human", f"Here is some retrieved context from the database:\n\n{data}\n\nPlease provide a concise summary of this information that might be relevant to the user's query.")
+            ]
+
+        
+            summerization_agent_call = self.inference(
+                summarization_prompt
+            )
+            # Create session if not exist
+            # if not thread_id in self.vector_store_sessions:
+            #     self.vector_store_sessions[thread_id] = ClientSession(self.server_params)
+            #     syslog.info(f"Created new MCP session for thread_id: {thread_id}")
 
         formatted_messages = []
         for role, content in messages:
             if role == "system":
                 syslog.info(f"Adding system message: {content}")
-                system_message  = content
-                formatted_messages.append(SystemMessage(content=content))
-            if role == "RAG":
-                formatted_messages.append({"role": "user", "content": content})
+                current_time = datetime.now().isoformat()
+                time_context = f"\n\n<CurrentTime>\nThe current system time is: {current_time}\n</CurrentTime>"
+                rag_summary = ("\n\n<PermenantMemoryRecall>\n" + summerization_agent_call.content + "\n</PermenantMemoryRecall>") if RAG else ""
+                system_message = content + time_context + rag_summary
+                formatted_messages.append(SystemMessage(content=system_message))
             elif role == "human":
                 formatted_messages.append({"role": "user", "content": content})
             elif role == "ai":
@@ -422,6 +465,17 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         )
         last_message = response["messages"][-1]
         syslog.info(response)
+        # Add content to vectordb
+        human = next((msg for role, msg in messages if role == "human"), "")
+        assistant = last_message.content if hasattr(last_message, "content") else str(last_message)
+        syslog.info(f"[VECTOR-STORE] Adding messagess to vector store. Human: {human}, Assistant: {assistant}")
+        self.vectorstore.save_session_turn(
+            session_id=thread_id,
+            user_text=human,
+            assistant_text=assistant,
+            source="conversation-history"
+        )
+        print(f"\n\n\n\n\nSYSTEM_MESSAGE:{system_message}\n\n\n\n\n")
         return AIMessage(content=last_message.content)
 
     def _setup_workflow(self, system):
@@ -522,6 +576,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         except Exception as e:
             syslog.warning(f"Could not clear memory for thread {thread_id}: {e}")
             
+    # OS Tools direct integration methods
     def execute_command(self, command: str, timeout: int = 30, 
                         working_dir: str = None) -> Dict[str, Any]:
         """
@@ -634,264 +689,15 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             
         return self.os_tools.get_detailed_system_info()
 
-    def visual_inference(self, prompt: str, image_source: Union[str, bytes, List[Union[str, bytes]]], 
-                         model: str = None, detail: str = "auto") -> AIMessage:
-        """
-        Perform visual inference on image(s) with a text prompt.
-        Supports vision-capable models for image understanding and analysis.
-        
-        Args:
-            prompt: Text prompt/question about the image(s)
-            image_source: Can be one of:
-                - A file path to a local image (str)
-                - A URL to an image (str starting with http:// or https://)
-                - Raw image bytes (bytes)
-                - A list of any combination of the above for multi-image analysis
-            model: Optional model override (should be a vision-capable model)
-                   For Ollama: llava, llava-llama3, bakllava, moondream, etc.
-                   For Groq: llama-3.2-90b-vision-preview, llama-3.2-11b-vision-preview, etc.
-            detail: Image detail level - "low", "high", or "auto" (default: "auto")
-                   Only applicable for some providers
-                   
-        Returns:
-            AIMessage with the model's response about the image(s)
-            
-        Example:
-            # Single image from file
-            response = rigel.visual_inference("What's in this image?", "/path/to/image.jpg")
-            
-            # Single image from URL
-            response = rigel.visual_inference("Describe this", "https://example.com/image.png")
-            
-            # Multiple images
-            response = rigel.visual_inference(
-                "Compare these two images",
-                ["/path/to/image1.jpg", "https://example.com/image2.png"]
-            )
-        """
-        def _encode_image_to_base64(image_path: str) -> str:
-            with open(image_path, "rb") as image_file:
-                return base64.b64encode(image_file.read()).decode("utf-8")
-        
-        def _get_image_mime_type(image_path: str) -> str:
-            ext = os.path.splitext(image_path)[1].lower()
-            mime_types = {
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".png": "image/png",
-                ".gif": "image/gif",
-                ".webp": "image/webp",
-                ".bmp": "image/bmp",
-            }
-            return mime_types.get(ext, "image/jpeg")
-        
-        def _process_image_source(source: Union[str, bytes]) -> Dict[str, Any]:
-            if isinstance(source, bytes):
-                base64_image = base64.b64encode(source).decode("utf-8")
-                return {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                        "detail": detail
-                    }
-                }
-            elif isinstance(source, str):
-                if source.startswith(("http://", "https://")):
-                    return {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": source,
-                            "detail": detail
-                        }
-                    }
-                else:
-                    if not os.path.exists(source):
-                        raise FileNotFoundError(f"Image file not found: {source}")
-                    base64_image = _encode_image_to_base64(source)
-                    mime_type = _get_image_mime_type(source)
-                    return {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{base64_image}",
-                            "detail": detail
-                        }
-                    }
-            else:
-                raise ValueError(f"Unsupported image source type: {type(source)}")
-        
-        content = [{"type": "text", "text": prompt}]
-        
-        if isinstance(image_source, list):
-            for source in image_source:
-                content.append(_process_image_source(source))
-        else:
-            content.append(_process_image_source(image_source))
-        
-        message = HumanMessage(content=content)
-        
-        original_model = None
-        if model:
-            original_model = self.llm.model
-            self.llm.model = model
-        
-        try:
-            syslog.info(f"Performing visual inference with model: {self.llm.model}")
-            response = self.llm.invoke([message])
-            syslog.info(f"Visual inference completed successfully")
-            return AIMessage(content=response.content)
-        except Exception as e:
-            syslog.error(f"Visual inference failed: {str(e)}")
-            raise
-        finally:
-            if original_model:
-                self.llm.model = original_model
-
-    async def visual_inference_with_memory(self, prompt: str, image_source: Union[str, bytes, List[Union[str, bytes]]],
-                                           thread_id: str = "default", model: str = None, 
-                                           detail: str = "auto") -> AIMessage:
-        """
-        Perform visual inference with conversation memory support.
-        
-        Args:
-            prompt: Text prompt/question about the image(s)
-            image_source: Image file path, URL, bytes, or list of these
-            thread_id: Thread ID for conversation memory
-            model: Optional vision model override
-            detail: Image detail level - "low", "high", or "auto"
-            
-        Returns:
-            AIMessage with the model's response
-        """
-        def _encode_image_to_base64(image_path: str) -> str:
-            with open(image_path, "rb") as image_file:
-                return base64.b64encode(image_file.read()).decode("utf-8")
-        
-        def _get_image_mime_type(image_path: str) -> str:
-            ext = os.path.splitext(image_path)[1].lower()
-            mime_types = {
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".png": "image/png",
-                ".gif": "image/gif",
-                ".webp": "image/webp",
-                ".bmp": "image/bmp",
-            }
-            return mime_types.get(ext, "image/jpeg")
-        
-        def _process_image_source(source: Union[str, bytes]) -> Dict[str, Any]:
-            if isinstance(source, bytes):
-                base64_image = base64.b64encode(source).decode("utf-8")
-                return {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}",
-                        "detail": detail
-                    }
-                }
-            elif isinstance(source, str):
-                if source.startswith(("http://", "https://")):
-                    return {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": source,
-                            "detail": detail
-                        }
-                    }
-                else:
-                    if not os.path.exists(source):
-                        raise FileNotFoundError(f"Image file not found: {source}")
-                    base64_image = _encode_image_to_base64(source)
-                    mime_type = _get_image_mime_type(source)
-                    return {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{base64_image}",
-                            "detail": detail
-                        }
-                    }
-            else:
-                raise ValueError(f"Unsupported image source type: {type(source)}")
-        
-        content = [{"type": "text", "text": prompt}]
-        
-        if isinstance(image_source, list):
-            for source in image_source:
-                content.append(_process_image_source(source))
-        else:
-            content.append(_process_image_source(image_source))
-        
-        if not self.app:
-            self._setup_workflow("You are RIGEL, a helpful AI assistant with vision capabilities.")
-        
-        original_model = None
-        if model:
-            original_model = self.llm.model
-            self.llm.model = model
-        
-        try:
-            config = {"configurable": {"thread_id": thread_id}}
-            visual_message = HumanMessage(content=content)
-            response = self.app.invoke(
-                {"messages": [visual_message]},
-                config=config
-            )
-            last_message = response["messages"][-1]
-            syslog.info(f"Visual inference with memory completed for thread: {thread_id}")
-            return AIMessage(content=last_message.content)
-        except Exception as e:
-            syslog.error(f"Visual inference with memory failed: {str(e)}")
-            raise
-        finally:
-            if original_model:
-                self.llm.model = original_model
-
 class RigelOllama(Rigel): # RIGEL with ollama backend
-    def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp, temp=0.7):
+    def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
         super().__init__(model_name=model_name, chatmode="ollama", mcp_endpoint=mcp_endpoint)
-        self.llm = ChatOllama(model=self.model, temperature=temp)
-
-    def _pull_model(self, model_name: str):
-        try:
-            syslog.info(f"Model '{model_name}' not found. Attempting to pull it...")
-            result = subprocess.run(
-                ["ollama", "pull", model_name],
-                capture_output=True,
-                text=True,
-                timeout=600
-            )
-            if result.returncode == 0:
-                syslog.info(f"Successfully pulled model '{model_name}'")
-                return True
-            else:
-                syslog.error(f"Failed to pull model '{model_name}': {result.stderr}")
-                return False
-        except subprocess.TimeoutExpired:
-            syslog.error(f"Timeout while pulling model '{model_name}'")
-            return False
-        except Exception as e:
-            syslog.error(f"Error pulling model '{model_name}': {str(e)}")
-            return False
+        self.llm = ChatOllama(model=self.model)
 
     def inference(self, messages: list, model: str = None):
         if model:
             self.llm.model = model
-        
-        try:
-            return super().inference(messages)
-        except Exception as e:
-            error_str = str(e)
-            if "not found" in error_str.lower() and "404" in error_str:
-                model_to_use = model if model else self.model
-                syslog.warning(f"Model '{model_to_use}' not found, attempting to pull...")
-                
-                if self._pull_model(model_to_use):
-                    syslog.info(f"Model '{model_to_use}' pulled successfully, retrying inference...")
-                    return super().inference(messages)
-                else:
-                    syslog.error(f"Failed to pull model '{model_to_use}', cannot proceed with inference")
-                    raise
-            else:
-                raise
+        return super().inference(messages)
 
 class RigelGroq(Rigel): # RIGEL with groq backend
     def __init__(self, model_name: str = "llama3-70b-8192", temp: float = 0.7,  mcp_endpoint = default_mcp):
@@ -918,18 +724,26 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         if model:
             self.llm.model = model
         return super().inference(messages)
-    
-class RigelAutoSwap(Rigel):
-    def __init__(self, model_name: str = "llama-swap-model", base_url: str = "http://localhost:12432", temp: float = 0.7):
-        super().__init__(model_name=model_name, chatmode="llama-swap")
-        self.base_url = base_url
-        self.llm = ChatOpenAI(
-            model=self.model,
-            base_url=f"{self.base_url}/v1",
-            api_key="not-needed",
-            temperature=temp,
-        )
-        syslog.info(f"Initialized RIGEL with llama.cpp server at {self.base_url}")
+
+class RigelTransformers(Rigel): # RIGEL with transformers backend (local inference)
+    def __init__(self, model_name: str = "local-transformers-model",  mcp_endpoint = default_mcp):
+        super().__init__(model_name=model_name, chatmode="transformers", mcp_endpoint=mcp_endpoint)
+        # Initialize your local transformers-based LLM here
+        # For example, you could use Hugging Face's transformers library to load a model
+        # self.llm = YourLocalTransformersLLM(model_name=self.model)
+        syslog.warning("Transformers backend is not implemented yet. This is a placeholder.")
+  
+# class RigelAutoSwap(Rigel):
+#     def __init__(self, model_name: str = "llama-swap-model", base_url: str = "http://localhost:12432", temp: float = 0.7):
+#         super().__init__(model_name=model_name, chatmode="llama-swap")
+#         self.base_url = base_url
+#         self.llm = ChatOpenAI(
+#             model=self.model,
+#             base_url=f"{self.base_url}/v1",
+#             api_key="not-needed",
+#             temperature=temp,
+#         )
+#         syslog.info(f"Initialized RIGEL with llama.cpp server at {self.base_url}")
 
 
 # Some Demos

@@ -22,10 +22,14 @@ import threading
 import queue
 import time
 import re
+import re
+
 
 class Recognizer:
     def __init__(self, model="tiny"):
-        self.model = whisper.load_model(model)
+        cache_dir = os.environ.get("WHISPER_CACHE_DIR", os.path.join(os.path.dirname(__file__), "..", ".cache", "whisper"))
+        cache_dir = os.path.abspath(cache_dir)
+        self.model = whisper.load_model(model, download_root=cache_dir)
         self.file_path = None
         self.output = None
 
@@ -104,6 +108,33 @@ class Synthesizer:
             print(f"Error playing chunk {chunk_id}: {e}")
 
     def synthesize(self, text):
+        def preprocess_for_synthesis(text):
+            text = re.sub(r'^\s*\d+\.\s+.*$', '', text, flags=re.MULTILINE)
+
+            text = re.sub(r'^\s*[-*•]\s+.*$', '', text, flags=re.MULTILINE)
+
+            text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text)
+
+            text = re.sub(r'\(e\.?g\.?\)', 'example', text, flags=re.IGNORECASE)
+            text = re.sub(r'\beg\.\b', 'example', text, flags=re.IGNORECASE)
+            text = re.sub(r'\be\.g\.\b', 'example', text, flags=re.IGNORECASE)
+
+            text = re.sub(r'`[^`]*`', '', text)
+
+            text = re.sub(r'^\s*#{1,6}\s+.*$', '', text, flags=re.MULTILINE)
+
+            text = re.sub(r'\n{2,}', '\n', text)
+
+            lines = [line.strip() for line in text.splitlines()]
+
+            lines = [line for line in lines if line]
+
+            result = ' '.join(lines)
+
+            result = re.sub(r' {2,}', ' ', result)
+
+            return result.strip()
+        text = preprocess_for_synthesis(text)
         if self.mode == "chunk":
             chunks = re.split(r'[.]\s*', text.strip())
             chunks = [chunk.strip() for chunk in chunks if chunk.strip()]

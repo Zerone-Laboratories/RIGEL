@@ -1,0 +1,18 @@
+# Minimal dependencies for MCP tool server only.
+# Use this when you only need the core tool RPC server (no heavy ML/audio packages).
+
+mcp==1.9.4
+# Optional utilities:
+# fastapi==0.115.9      # only needed if the web/server path uses FastAPI
+# uvicorn==0.34.3      # only needed when launching FastAPI server
+# starlette==0.45.3    # dependency of FastAPI
+
+# Browser automation (optional, uncomment if you need CDP tools)
+# playwright==1.49.1
+
+# D-Bus client for system integration (optional)
+# pydbus==0.6.0
+
+# Optional tool support packages
+# pydantic==2.11.7
+# pydantic-core==2.33.2

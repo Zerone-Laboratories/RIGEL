@@ -23,6 +23,7 @@
   - [Starting the MCP Server](#starting-the-mcp-server-on-a-separate-instance)
   - [Configuring MCP Servers](#configuring-mcp-servers)
   - [Using the D-Bus Service](#using-the-d-bus-service)
+- [Browser Automation Workflows](#browser-automation-workflows)
 - [Voice Features](#voice-features)
   - [Voice Synthesis (Text-to-Speech)](#voice-synthesis-text-to-speech)
   - [Voice Recognition (Speech-to-Text)](#voice-recognition-speech-to-text)
@@ -62,7 +63,7 @@
 
 Hello World !
 
-> Zerone Laboratories - Rigel Engine v4.0.X [Developer Beta]
+> Zerone Laboratories - Rigel Engine v5.0.X [Developer Beta]
 
 **Open-source Hybrid AI Assistant & Virtual Assistant Engine**  
 Multi-LLM backend support | Agentic AI | Local & Cloud Inference | D-Bus Integration | Python AI Framework
@@ -102,8 +103,11 @@ Key capabilities:
 - **Multi-LLM Support**: Ollama (local), Groq (cloud), LLAMA.cpp, Transformers
 - **Agentic AI**: Advanced reasoning, thinking, and decision-making
 - **System Integration**: D-Bus server for OS-level AI assistance
-- **MCP Tools**: File management, system commands, real-time information with configurable server support
+- **MCP Tools**: File management, system commands, real-time information, and rich system/device interaction with configurable server support
 - **Voice Interface**: Local speech-to-text and text-to-speech capabilities
+- **Vector Memory Retrieval**: `/query-with-memory` uses vector session retrieval to bring in relevant historical context.
+- **Natural Language Routing**: Memory-first tool delegation through `/rigel-natural-language`
+- **Image Analysis**: Vision-powered image understanding via `/analyze-image`
 - **Memory Management**: Persistent conversation threads
 - **Extensible**: Plugin architecture for custom capabilities and MCP server integration
 
@@ -125,6 +129,8 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 | Local Voice Recognition                        | ✓         |
 | Local Voice Synthesis                          | ✓         |
 | Visual Inference (Vision Models)               | ✓         |
+| Natural Language Routing                       | ✓         |
+| Image Analysis REST Endpoint                   | ✓         |
 | Multiple Request Handling                      | Un-Tested |
 
 ## Features
@@ -132,6 +138,7 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 - **Multi-Backend Support**: Seamlessly switch between Ollama (local) and Groq (cloud) backends. More backends will be integrated in future
 - **D-Bus Server Integration**: Inter-process communication via D-Bus for system-wide AI assistance
 - **MCP (Model Context Protocol) Tools**: Extended AI capabilities with system-level operations including file management, system commands, and real-time information access
+- **Browser Automation Workflows**: Save and replay browser automation tasks - record once with AI, replay infinitely without AI
 - **Voice Synthesis & Recognition**: Local speech-to-text using Whisper and text-to-speech using Piper with chunked streaming audio
 - **Extensible Architecture**: Built with a superclass design for easy extension to new capabilities
 - **Memory Management**: Persistent conversation memory with thread-based organization
@@ -335,9 +342,26 @@ curl http://localhost:8000/license-info
 
 Both servers support the same core functionality but with different interfaces. Choose the one that best fits your use case.
 
-#### Starting the MCP Server on a separate instance
+#### Starting the MCP Server on host via systemd (recommended)
 
-For debugging or standalone use, you can start the built-in MCP server manually:
+Run the host startup service that starts the MCP tools server (port 8001) and the main Docker `rigel-server` container.
+
+```bash
+sudo cp scripts/rigel-tools.service /etc/systemd/system/rigel-tools.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rigel-tools.service
+sudo systemctl status rigel-tools.service
+```
+
+This service executes `scripts/host-up.sh` (requires root / sudo) and ensures:
+- built-in `core/mcp/rigel_tools_server.py` runs on host
+- `docker compose up rigel-server` starts host service, not containerized tools server
+
+> Note: The MCP server is now started separately from the main RIGEL process. Make sure the MCP server is running before you start the web/D-Bus server.
+
+- To start the MCP server: `python core/mcp/rigel_tools_server.py
+
+For debugging or standalone use, you can still start the built-in MCP server manually:
 
 ```bash
 cd core/mcp/
@@ -389,6 +413,85 @@ response = service.QueryWithTools("Check the system uptime and current user")
 response = service.SynthesizeText("Hello, this is RIGEL speaking!", "chunk")
 transcription = service.RecognizeAudio("/path/to/audio.wav", "tiny")
 ```
+
+## Browser Automation Workflows
+
+RIGEL includes a powerful workflow system that allows you to save and replay browser automation tasks. Create a workflow once with the AI agent, then replay it unlimited times without needing AI processing.
+
+### Quick Start
+
+```bash
+# List all saved workflows
+python test_browser_agent_direct.py --list
+
+# Run a task with AI and save as workflow
+python test_browser_agent_direct.py --save "Workflow Name" "your task description"
+
+# Replay a saved workflow (no AI needed!)
+python test_browser_agent_direct.py --replay "Workflow Name"
+
+# Or use the convenience script
+./workflow.sh list
+./workflow.sh save "YouTube Search" "go to youtube.com and search for AI"
+./workflow.sh replay "YouTube Search"
+```
+
+### Key Benefits
+
+- **⚡ Speed**: Replay workflows in seconds vs minutes with AI
+- **💰 Cost**: Zero API calls during replay
+- **🎯 Reliability**: Exact same steps every time
+- **📤 Shareable**: Export workflows as JSON files
+- **🔄 Reusable**: Perfect for repetitive tasks
+
+### Use Cases
+
+1. **Daily Tasks**: Automate repetitive browser operations
+2. **Testing**: Create test scenarios and run them repeatedly
+3. **Monitoring**: Check website status or data periodically
+4. **Data Collection**: Gather information on a schedule
+
+### Example Workflow Creation
+
+```bash
+# Create a workflow for searching YouTube
+python test_browser_agent_direct.py --save "YouTube Search" \
+  "go to youtube.com and search for 'AI tutorials'"
+
+# The AI agent will:
+# 1. Navigate to YouTube
+# 2. Find and click the search box
+# 3. Type the search query
+# 4. Submit the search
+# 5. Save all steps as a reusable workflow
+```
+
+### Replaying Workflows
+
+```bash
+# Replay with visible browser
+python test_browser_agent_direct.py --replay "YouTube Search"
+
+# Replay in headless mode (faster, no window)
+python test_browser_agent_direct.py --replay "YouTube Search" --headless
+
+# Or use the shell script
+./workflow.sh replay "YouTube Search"
+./workflow.sh replay-headless "YouTube Search"
+```
+
+### Workflow Management
+
+Workflows are stored as JSON files in the `workflows/` directory:
+
+```bash
+workflows/
+├── README.md                       # Technical documentation
+├── Example_YouTube_Search.json     # Example workflow
+└── Your_Workflow_Name.json         # Your saved workflows
+```
+
+For detailed usage, see [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)
 
 ## Voice Features
 
@@ -857,7 +960,7 @@ RIGEL supports multiple MCP servers through the `MultiServerMCPClient`. You can 
 
 #### Built-in MCP Server
 
-RIGEL includes a built-in MCP server with essential system tools:
+RIGEL includes a built-in MCP server with essential system tools. This server must be started separately from the main RIGEL process.
 
 ```bash
 # Start the built-in MCP server manually (for debugging)
@@ -968,7 +1071,7 @@ If no MCP servers are configured (`default_mcp = None`), RIGEL will display a wa
    - Check that the MCP server started successfully
 
 ### Available MCP Tools
-
+> Most of the tools are built to work with KDE Plasma desktop. But you can add custom tools here.
 The built-in RIGEL MCP server (`core/mcp/rigel_tools_server.py`) provides the following tools:
 
 #### System Operations
@@ -984,8 +1087,9 @@ The built-in RIGEL MCP server (`core/mcp/rigel_tools_server.py`) provides the fo
   - 30-second timeout for safety
   - Returns both stdout and stderr
   - Captures exit codes for error handling
+- **`send_dbus_notification(title, message)`** - Send a desktop notification through D-Bus
 
-#### File Operations
+#### File and Directory Operations
 
 - **`read_file(file_path)`** - Read contents of any accessible file
   - Supports UTF-8 encoding
@@ -999,6 +1103,68 @@ The built-in RIGEL MCP server (`core/mcp/rigel_tools_server.py`) provides the fo
   - 📄 for files
   - Defaults to current directory if no path provided
   - Sorted alphabetically for consistent output
+
+#### Connectivity and System Status
+
+- **`list_usb_devices()`** - Enumerate currently connected USB devices
+- **`network_status()`** - Report the current network connectivity status
+- **`system_specs()`** - Provide extended system specifications and hardware details
+
+#### UI and Desktop Control
+
+- **`set_volume(level)`** / **`get_volume()`** - Manage system volume
+- **`set_brightness(level)`** - Adjust screen brightness
+- **`toggle_night_color()`** - Toggle night color mode
+- **`toggle_do_not_disturb()`** - Toggle Do Not Disturb mode
+- **`toggle_wifi()`** / **`toggle_bluetooth()`** - Toggle wireless interfaces
+- **`open_system_settings()`** - Open system settings or control panel
+- **`get_display_info()`** - Retrieve display and monitor information
+- **`set_display_resolution(width, height)`** - Change display resolution
+- **`set_screen_timeout(seconds)`** - Adjust screen timeout settings
+
+#### Application and Window Management
+
+- **`list_running_apps()`** - List active applications
+- **`open_app(app_name)`** - Launch an application by name
+- **`close_app_by_name(app_name)`** - Close an application window by process name
+- **`close_window_by_title(title)`** - Close windows matching the given title
+- **`focus_window(title)`** - Focus a window by title
+- **`switch_virtual_desktop(index)`** - Switch virtual desktops
+- **`lock_screen()`** - Lock the current screen session
+
+#### Clipboard and Media
+
+- **`get_clipboard_content()`** - Read clipboard contents
+- **`set_clipboard_content(content)`** - Write content to the clipboard
+- **`take_screenshot(output_path)`** - Capture a screenshot and save to a file
+- **`run_krunner(query)`** - Execute a KDE Krunner query
+- **`media_control(action)`** - Control media playback actions
+- **`get_media_playback_info()`** - Get current media playback status
+
+#### Network and Device Interaction
+
+- **`get_battery_status()`** - Report battery and power status
+- **`get_wifi_networks()`** - List available Wi-Fi networks
+- **`connect_wifi(ssid, password)`** - Connect to a Wi-Fi network
+
+#### Advanced Device and ACI Integration
+
+> NOTE: ACI - Stands for `Auxiliary Compute Interface`. Basically these tools use KDE Connect to communicate with android devices
+
+- **`ztos_aci_list_devices()`** - List ACI devices
+- **`ztos_aci_send_sms(number, message)`** - Send an SMS via ACI device
+- **`ztos_aci_send_notification(device_id, message)`** - Send an ACI notification
+- **`ztos_aci_ring_device(device_id)`** - Ring a connected ACI device
+- **`ztos_aci_send_file(device_id, file_path)`** - Send a file to an ACI device
+- **`ztos_aci_share_url(device_id, url)`** - Share a URL to an ACI device
+- **`ztos_aci_get_device_info(device_id)`** - Retrieve ACI device information
+- **`ztos_aci_run_command(device_id, command)`** - Execute a command on an ACI device
+- **`ztos_aci_set_volume(device_id, volume)`** - Adjust ACI device volume
+- **`ztos_aci_list_user_contacts()`** - List user contacts on ACI devices [TODO]
+
+#### Browser Interaction
+
+- **`browser_interactions(task)`** - Perform browser automation and interaction tasks via MCP browser agent
 
 #### Tool Safety Features
 
@@ -1227,14 +1393,18 @@ The web server provides the same functionality as the D-Bus server through HTTP 
 | ------------------------------ | ------ | ------------------------------------------- | -------------------------------------------- |
 | `/`                            | GET    | Service information and available endpoints | None                                         |
 | `/query`                       | POST   | Basic inference                             | `{"query": "string", "system_prompt": "string?"}` |
-| `/query-with-memory`           | POST   | Inference with conversation memory          | `{"query": "string", "id": "string", "system_prompt": "string?"}` |
+| `/query-with-memory`           | POST   | Inference with conversation memory using vector retrieval | `{"query": "string", "id": "string"}` |
 | `/query-think`                 | POST   | Advanced thinking capabilities              | `{"query": "string", "system_prompt": "string?"}` |
 | `/query-with-tools`            | POST   | Inference with MCP tools support            | `{"query": "string", "system_prompt": "string?"}` |
+| `/rigel-natural-language`      | POST   | Memory-first natural language tool routing  | `{"query": "string", "id": "string"}` |
+| `/analyze-image`               | POST   | Vision-based image analysis                 | `{"image_path": "string", "prompt": "string"}` |
 | `/synthesize-text`             | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear"}` |
 | `/recognize-audio`             | POST   | Transcribe audio file to text               | Multipart form with `audio_file` and `model` |
 | `/license-info`                | GET    | License and copyright information           | None                                         |
 | `/admin/switch-inference-engine` | POST | Switch between GROQ and OLLAMA backends     | `{"engine": "groq" or "ollama"}`             |
 | `/admin/current-inference-engine` | GET | Get current inference engine                | None                                         |
+
+> Note: `/query-with-memory` uses a vector retriever to recall relevant session history and summarize it into the conversation context.
 
 ### Running the Web Server
 
@@ -1278,6 +1448,9 @@ INFERENCE_ENGINE=groq GROQ_API_KEY=your_key_here docker-compose up
 
 # Start with D-Bus server instead of web server
 SERVER_TYPE=dbus docker-compose up
+
+# Start both Web + D-Bus servers together
+SERVER_TYPE=hybrid docker-compose up
 ```
 
 > Note: With `INFERENCE_ENGINE=ollama`, the container prefers a system Ollama if available. Mount your host binary (e.g. `/usr/bin/ollama:/usr/bin/ollama:ro`) or set `OLLAMA_HOST` to a reachable host (e.g. `http://host.docker.internal:11434`). The container starts a local `ollama serve` only when targeting a local endpoint and the binary is present.
@@ -1287,7 +1460,7 @@ SERVER_TYPE=dbus docker-compose up
 - **Ollama Integration**: When `INFERENCE_ENGINE=ollama` is set, the container uses a host/system Ollama if provided (via mounted binary or `OLLAMA_HOST`). It only starts a local `ollama serve` when pointing to a local endpoint and the binary exists in the container.
 - **Persistent Models**: Ollama models are stored in a Docker volume to persist between container restarts
 - **GPU Support**: Includes NVIDIA GPU support for accelerated inference
-- **Server Type Selection**: Choose between web server and D-Bus server using the `SERVER_TYPE` environment variable
+- **Server Type Selection**: Choose web server, D-Bus server, or hybrid mode (both) using the `SERVER_TYPE` environment variable
 - **Port Mapping**: 
   - Port 8000: RIGEL Web API
   - Port 11434: Ollama API (when using Ollama backend)
@@ -1350,6 +1523,7 @@ curl -X POST "http://localhost:8000/query-with-memory" \
      -d '{"query": "My name is Alice and I am a software developer", "id": "user123"}'
 
 # Query with memory - continue conversation
+# Note: `/query-with-memory` uses vector session retrieval for relevant past context.
 curl -X POST "http://localhost:8000/query-with-memory" \
      -H "Content-Type: application/json" \
      -d '{"query": "What do you know about me?", "id": "user123"}'
@@ -1363,6 +1537,16 @@ curl -X POST "http://localhost:8000/query-think" \
 curl -X POST "http://localhost:8000/query-with-tools" \
      -H "Content-Type: application/json" \
      -d '{"query": "What time is it? Also, list the files in the current directory and summarize any README files you find."}'
+
+# Natural language tool routing
+curl -X POST "http://localhost:8000/rigel-natural-language" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "Check the system status and summarize what services are running.", "id": "session-123"}'
+
+# Image analysis
+curl -X POST "http://localhost:8000/analyze-image" \
+     -H "Content-Type: application/json" \
+     -d '{"image_path": "/tmp/screenshot.png", "prompt": "Describe the main objects and any visible text in this image."}'
 
 # Text synthesis
 curl -X POST "http://localhost:8000/synthesize-text" \
@@ -1670,7 +1854,7 @@ For support, please open an issue in the GitHub repository or contact Zerone Lab
 
 An effort to make it easier for the opensource community to build your own Virtual Assistant.
 
-**Zerone Laboratories Systems - RIGEL Engine v4.0.X[Dev]**
+**Zerone Laboratories Systems - RIGEL Engine v5.0.X[Dev]**
 
 ## Monetization & API Keys
 

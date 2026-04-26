@@ -1,0 +1,48 @@
+INFO:     Started server process [2274683]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+OSTools module not available. Advanced OS operations will be limited.
+REST API for tool calls running on http://0.0.0.0:8002
+INFO:     127.0.0.1:46636 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35788 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35796 - "POST /messages/?session_id=d05b98921f4c40e789ac5355332dc0e0 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:35796 - "POST /messages/?session_id=d05b98921f4c40e789ac5355332dc0e0 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:35796 - "POST /messages/?session_id=d05b98921f4c40e789ac5355332dc0e0 HTTP/1.1" 202 Accepted
+Processing request of type ListToolsRequest
+INFO:     127.0.0.1:35804 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35818 - "POST /messages/?session_id=bcc55830e773460e98b760f1a0020fdb HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:35818 - "POST /messages/?session_id=bcc55830e773460e98b760f1a0020fdb HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:35818 - "POST /messages/?session_id=bcc55830e773460e98b760f1a0020fdb HTTP/1.1" 202 Accepted
+Processing request of type CallToolRequest
+INFO:     127.0.0.1:35834 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35836 - "POST /messages/?session_id=56c21899cc0b446bb3965bbd320f4a90 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:35836 - "POST /messages/?session_id=56c21899cc0b446bb3965bbd320f4a90 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:35836 - "POST /messages/?session_id=56c21899cc0b446bb3965bbd320f4a90 HTTP/1.1" 202 Accepted
+Processing request of type CallToolRequest
+INFO:     127.0.0.1:59402 - "GET /s%20se HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:45426 - "GET /s%20se HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:38134 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38146 - "POST /messages/?session_id=c5a2d8d4ae7048f99c7f24a373c04a08 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:38146 - "POST /messages/?session_id=c5a2d8d4ae7048f99c7f24a373c04a08 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:38146 - "POST /messages/?session_id=c5a2d8d4ae7048f99c7f24a373c04a08 HTTP/1.1" 202 Accepted
+Processing request of type ListToolsRequest
+INFO:     127.0.0.1:49242 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49244 - "POST /messages/?session_id=833fabd5237849acbed7927341747e20 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:49244 - "POST /messages/?session_id=833fabd5237849acbed7927341747e20 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:49244 - "POST /messages/?session_id=833fabd5237849acbed7927341747e20 HTTP/1.1" 202 Accepted
+Processing request of type CallToolRequest
+INFO:     127.0.0.1:43574 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43580 - "POST /messages/?session_id=d588cbb6f2b94c98b35a09a386b14fe8 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:43580 - "POST /messages/?session_id=d588cbb6f2b94c98b35a09a386b14fe8 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:43580 - "POST /messages/?session_id=d588cbb6f2b94c98b35a09a386b14fe8 HTTP/1.1" 202 Accepted
+Processing request of type ListToolsRequest
+INFO:     127.0.0.1:43582 - "GET /sse HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43584 - "POST /messages/?session_id=99a01a9d5467436e9e4231bd38896c38 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:43584 - "POST /messages/?session_id=99a01a9d5467436e9e4231bd38896c38 HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:43584 - "POST /messages/?session_id=99a01a9d5467436e9e4231bd38896c38 HTTP/1.1" 202 Accepted
+Processing request of type CallToolRequest
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2274683]

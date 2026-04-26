@@ -32,4 +32,7 @@ SQLAlchemy==2.0.41
 packaging==24.2
 tqdm==4.67.1
 openai-whisper
-torch==2.5.1
+torch==2.10.0
+playwright==1.49.1
+pillow==11.1.0
+langchain-openai
