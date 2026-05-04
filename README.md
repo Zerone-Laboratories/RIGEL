@@ -1817,6 +1817,7 @@ print(response.json())
 - `GROQ_API_KEY`: Required for Groq backend usage
 - `INFERENCE_ENGINE`: Set to "groq" or "ollama" to specify the default inference engine
 - `RIGEL_ADMIN_KEY`: Admin key for accessing administrative endpoints
+- `RIGEL_SYSTEM_PROMPT`: Override the default assistant system prompt from `.env` or the environment. Use `\n` for line breaks when defining a multi-line prompt.
 
 ## Logging
 
@@ -1912,6 +1913,12 @@ Set admin key via environment variable:
 ```bash
 export RIGEL_ADMIN_KEY="your_secure_admin_key"
 ```
+
+If `RIGEL_ADMIN_KEY` is not set, the web server auto-generates an admin key and persists it to `.xadminkey` in the project directory (so it stays stable across restarts).
+
+For a simple manual testing UI, open:
+
+- `http://localhost:8000/ui/`
 
 Admin endpoints:
 

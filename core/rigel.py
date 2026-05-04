@@ -154,12 +154,29 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.tools_memory_store: Dict[str, List[Dict[str, str]]] = {}
         self.vectorstore = DBConn()
         print("VectorStore Preflight")
-        self.vectorstore.search_session_context(session_id='1234', query="preflight", n_results=4)
+        self.vectorstore.search_session_context(session_id='1234', query="preflight", n_results=10)
         self.server_params = StdioServerParameters(
             command="python",
             args=["/home/zerone/Projects/RIGEL_SERVICE/core/mcp/rigel_tools_server.py"],
         )
-        self.continuity = """
+        self.continuity_breakers = [
+            r"The task is done\.",
+            r"Please provide more information\.",
+            r"The task is impossible\.",
+            r"Let me know what you'd like to do next\.",
+            r"Let me know\.",
+            r"I'm unable to continue",
+            r"I can't proceed",
+            r"I cannot proceed",
+            r"Unable to continue",
+            r"No specific action to perform",
+            r"Could you specify what action you'd like me to take next\?",
+            r"Could you please provide more information on what exactly you want to do\?",
+            r"Would you like me to help you with anything else\?",
+            r"It seems we're stuck",
+            r"Let me know how you'd like to proceed!"
+        ]
+        self.continuity = f"""
                         Proceed. You CAN run code on my machine.
                         ALWAYS run  the command in the 'Working Directory' and remember the working directory
                         When providing tool outputs (like file listings, command results, etc.), always include the actual output in your response.
@@ -167,6 +184,8 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                         If you need some specific information (like username or password) say EXACTLY 'Please provide more information.'
                         If it's impossible, say 'The task is impossible.'
                         (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.
+                        Strictly use following continuity breakers
+                        {', '.join(self.continuity_breakers)}
         """
 
         self.think_n_plan = """
@@ -174,13 +193,6 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         Say exactly 'Task is done'. If its impossible exactly say 'Task is impossible'.
         """
 
-        self.continuity_breakers = [
-            r"The task is done\.",
-            r"Please provide more information\.",
-            r"The task is impossible\.",
-            r"Let me know what you'd like to do next\.",
-            r"Let me know\."
-        ]
         self.continuity_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.continuity_breakers]
         # runtime memory adapter
         # self.memory = ConversationBufferMemory(memory_key="history", return_messages=True)
@@ -287,6 +299,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         max_iterations = 10
         iteration_count = 0
         complete_output = []
+        previous_response_content = None
 
         try:
             while iteration_count < max_iterations:
@@ -323,7 +336,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                 if iteration_output:
                     complete_output.extend(iteration_output)
                 if hasattr(final_message, 'content') and final_message.content:
-                    response_content = final_message.content
+                    response_content = final_message.content.strip()
 
                     continuity_breaker_found = False
                     for pattern in self.continuity_patterns:
@@ -331,6 +344,13 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                             syslog.info(f"Continuity breaker detected: {response_content}")
                             continuity_breaker_found = True
                             break
+
+                    if not continuity_breaker_found and previous_response_content and response_content == previous_response_content:
+                        syslog.info("Repeated response detected; terminating tool loop early.")
+                        full_response = "\n\n".join(complete_output)
+                        return AIMessage(content=f"{full_response}\n\nTask execution terminated due to repeated output.")
+
+                    previous_response_content = response_content
 
                     if continuity_breaker_found:
                         full_response = "\n\n".join(complete_output)
@@ -395,6 +415,11 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
         return response
 
+    def clear_tools_memory(self, thread_id: str = "default"):
+        if thread_id in self.tools_memory_store:
+            del self.tools_memory_store[thread_id]
+            syslog.info(f"Cleared tools memory for thread: {thread_id}")
+
     def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default", RAG: bool = True):
         """
         use this function as follows
@@ -422,7 +447,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         if RAG:
             syslog.info(f"RIGEL has previous session contexts")
             last_message = messages[-1][1]
-            data = self.vectorstore.search_session_context(session_id=thread_id, query=last_message, n_results=4)
+            data = self.vectorstore.search_session_context(session_id=thread_id, query=last_message, n_results=10)
             # Escape literal curly braces to prevent Langchain prompt formatting errors
             data = data.replace('{', '{{').replace('}', '}}')
 
@@ -692,7 +717,18 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 class RigelOllama(Rigel): # RIGEL with ollama backend
     def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
         super().__init__(model_name=model_name, chatmode="ollama", mcp_endpoint=mcp_endpoint)
-        self.llm = ChatOllama(model=self.model)
+        self.ollama_host = os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_URL") or "http://localhost:11434"
+        self.llm = self._create_chat_ollama()
+
+    def _create_chat_ollama(self):
+        host = self.ollama_host
+        model = self.model
+        for host_arg in ("base_url", "host", "api_base", "url"):
+            try:
+                return ChatOllama(model=model, **{host_arg: host})
+            except TypeError:
+                continue
+        return ChatOllama(model=model)
 
     def inference(self, messages: list, model: str = None):
         if model:

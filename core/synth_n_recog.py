@@ -22,21 +22,86 @@ import threading
 import queue
 import time
 import re
-import re
+import math
 
 
 class Recognizer:
-    def __init__(self, model="tiny"):
+    def __init__(self, model="small"):
         cache_dir = os.environ.get("WHISPER_CACHE_DIR", os.path.join(os.path.dirname(__file__), "..", ".cache", "whisper"))
         cache_dir = os.path.abspath(cache_dir)
-        self.model = whisper.load_model(model, download_root=cache_dir)
+        self.model_name = model
+        self.cache_dir = cache_dir
+        self.models = [None, None, None]
+        self.model_locks = [threading.Lock(), threading.Lock(), threading.Lock()]
         self.file_path = None
         self.output = None
 
+    def _get_model(self, worker_id):
+        if self.models[worker_id] is None:
+            self.models[worker_id] = whisper.load_model(self.model_name, download_root=self.cache_dir)
+        return self.models[worker_id]
+
+    def _extract_confidence(self, result):
+        segments = result.get("segments", [])
+        confidences = []
+
+        for segment in segments:
+            avg_logprob = segment.get("avg_logprob")
+            if avg_logprob is not None:
+                confidences.append(math.exp(avg_logprob))
+                continue
+
+            confidence = segment.get("confidence")
+            if confidence is not None:
+                confidences.append(confidence)
+
+        if confidences:
+            return sum(confidences) / len(confidences)
+
+        avg_logprob = result.get("avg_logprob")
+        if avg_logprob is not None:
+            return math.exp(avg_logprob)
+
+        return 0.0
+
+    def _transcribe_worker(self, filepath, result_queue, worker_id):
+        try:
+            model = self._get_model(worker_id)
+            with self.model_locks[worker_id]:
+                result = model.transcribe(filepath)
+            confidence = self._extract_confidence(result)
+            result_queue.put((confidence, result.get("text", ""), worker_id))
+        except Exception as e:
+            print(f"Recognition worker {worker_id} failed: {e}")
+            result_queue.put((0.0, "", worker_id))
+
     def transcribe(self, filepath):
         self.file_path = filepath
-        result = self.model.transcribe(self.file_path)
-        return result["text"]
+        result_queue = queue.Queue()
+        threads = []
+
+        for worker_id in range(3):
+            thread = threading.Thread(
+                target=self._transcribe_worker,
+                args=(self.file_path, result_queue, worker_id),
+            )
+            thread.daemon = True
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
+
+        best_confidence = -1.0
+        best_text = ""
+        while not result_queue.empty():
+            confidence, text, worker_id = result_queue.get()
+            print(f"\n\n\n\n\n\nRecognition worker {worker_id} returned confidence={confidence:.4f}\n\n\n\n\n\n")
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_text = text
+
+        return best_text
     
 class Synthesizer:
     def __init__(self, mode="chunk"):
@@ -45,7 +110,7 @@ class Synthesizer:
         self.synthesis_queue = queue.Queue()
         self.playback_queue = queue.Queue()
         self.piper_path = subprocess.check_output(["which", "piper"], text=True).strip()
-        self.model_path = os.path.join(os.path.dirname(__file__), "synthesis_assets", "jarvis-medium.onnx")
+        self.model_path = os.path.join(os.path.dirname(__file__), "synthesis_assets", "knight.onnx")
 
     def _synthesize_chunk(self, chunk, chunk_id, output_file):
         try:
@@ -107,6 +172,32 @@ class Synthesizer:
         except Exception as e:
             print(f"Error playing chunk {chunk_id}: {e}")
 
+    def _split_text_into_chunks(self, text, max_words=80):
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        chunks = []
+        current_words = []
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            words = sentence.split()
+            if len(current_words) + len(words) <= max_words:
+                current_words.extend(words)
+            else:
+                if current_words:
+                    chunks.append(' '.join(current_words).strip())
+                if len(words) <= max_words:
+                    current_words = words
+                else:
+                    # split oversized sentence into smaller pieces
+                    for i in range(0, len(words), max_words):
+                        chunks.append(' '.join(words[i:i + max_words]).strip())
+                    current_words = []
+        if current_words:
+            chunks.append(' '.join(current_words).strip())
+        return [chunk for chunk in chunks if chunk]
+
     def synthesize(self, text):
         def preprocess_for_synthesis(text):
             text = re.sub(r'^\s*\d+\.\s+.*$', '', text, flags=re.MULTILINE)
@@ -123,6 +214,22 @@ class Synthesizer:
 
             text = re.sub(r'^\s*#{1,6}\s+.*$', '', text, flags=re.MULTILINE)
 
+            text = re.sub(r'\[.*?\]\((?:https?://|www\.)[^)]+\)', ' ', text)
+            text = re.sub(r'https?://\S+|www\.\S+', ' ', text, flags=re.IGNORECASE)
+
+            emoji_pattern = re.compile(
+                '[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002700-\U000027BF\U00002600-\U000026FF\U0001F900-\U0001F9FF\U0001FA70-\U0001FAFF\U00002500-\U00002BEF\U0001F700-\U0001F77F]+'
+                , flags=re.UNICODE
+            )
+            text = emoji_pattern.sub('', text)
+
+            # Convert em/en dashes to comma separators, e.g. "clear—your" -> "clear, your"
+            text = re.sub(r'\s*[—–]\s*', ', ', text)
+
+            # Normalize curly apostrophes
+            text = text.replace('’', "'").replace('‘', "'")
+
+            text = re.sub(r"[^A-Za-z0-9\s\.\,\?\!\:\;\-']+", ' ', text)
             text = re.sub(r'\n{2,}', '\n', text)
 
             lines = [line.strip() for line in text.splitlines()]
@@ -136,11 +243,17 @@ class Synthesizer:
             return result.strip()
         text = preprocess_for_synthesis(text)
         if self.mode == "chunk":
-            chunks = re.split(r'[.]\s*', text.strip())
-            chunks = [chunk.strip() for chunk in chunks if chunk.strip()]
+            chunks = self._split_text_into_chunks(text)
             
             print(f"Processing {len(chunks)} chunks...")
             
+            playback_thread = threading.Thread(
+                target=self._play_chunks_sequentially,
+                args=(len(chunks),)
+            )
+            playback_thread.daemon = True
+            playback_thread.start()
+
             synthesis_threads = []
             for i, chunk in enumerate(chunks):
                 output_file = f"output_chunk_{i}.wav"
@@ -153,12 +266,7 @@ class Synthesizer:
                 thread.daemon = True
                 thread.start()
                 synthesis_threads.append(thread)
-            playback_thread = threading.Thread(
-                target=self._play_chunks_sequentially,
-                args=(len(chunks),)
-            )
-            playback_thread.daemon = True
-            playback_thread.start()
+
             for thread in synthesis_threads:
                 thread.join()
             

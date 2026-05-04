@@ -31,6 +31,11 @@ from urllib.error import URLError, HTTPError
 from typing import Optional
 import time
 import html
+import pexpect
+import time
+import re
+import signal
+import json
 
 # Import OSTools class if it's available
 try:
@@ -52,6 +57,8 @@ import threading
 
 TOOL_REGISTRY = {}  # Will be populated after tool definitions
 
+# HELPERS--------------------------------------
+
 def trigger_notification(title: str, message: str):
     try:
         subprocess.run(
@@ -63,10 +70,357 @@ def trigger_notification(title: str, message: str):
     except Exception as e:
         print(f"Failed to send notification: {e}")
 
+QML_TEMPLATES = {
+
+    # ── YES / NO confirmation dialog ─────────────────────────────────────────
+    "confirm": """
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+
+FloatingWindow {
+    id: win
+    title: "{title}"
+    implicitWidth: 420
+    implicitHeight: 180
+    visible: true
+
+    Rectangle {
+        anchors.fill: parent
+        color: "#012946"
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 24
+        spacing: 16
+
+        Text {
+            text: "{title}"
+            font.pixelSize: 16
+            font.bold: true
+            color: "#ffffff"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            text: "{message}"
+            font.pixelSize: 13
+            color: "#cccccc"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Button {
+                text: "{cancel_label}"
+                Layout.fillWidth: true
+                onClicked: Qt.exit(0)
+            }
+            Button {
+                text: "{confirm_label}"
+                Layout.fillWidth: true
+                onClicked: Qt.exit(1)
+            }
+        }
+    }
+}
+""",
+
+    # ── Single-line text input ────────────────────────────────────────────────
+    "input": """
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+
+FloatingWindow {
+    id: win
+    title: "{title}"
+    implicitWidth: 460
+    implicitHeight: 210
+    visible: true
+
+    Rectangle {
+        anchors.fill: parent
+        color: "#012946"
+    }
+
+    // Write result to a temp file since Qt.exit() can't carry a string
+    Process {
+        id: writer
+        command: ["bash", "-c", "echo " + JSON.stringify(field.text) + " > /tmp/qs_input_result.txt"]
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 24
+        spacing: 14
+
+        Text {
+            text: "{title}"
+            font.pixelSize: 16
+            font.bold: true
+            color: "#ffffff"
+            Layout.fillWidth: true
+        }
+        Text {
+            text: "{message}"
+            font.pixelSize: 13
+            color: "#cccccc"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
+        TextField {
+            id: field
+            placeholderText: "{placeholder}"
+            Layout.fillWidth: true
+            echoMode: {echo_mode}
+            Keys.onReturnPressed: submit()
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Button {
+                text: "Cancel"
+                Layout.fillWidth: true
+                onClicked: Qt.exit(0)
+            }
+            Button {
+                text: "OK"
+                Layout.fillWidth: true
+                onClicked: submit()
+            }
+        }
+    }
+
+    function submit() {
+        writer.running = true
+        Qt.exit(1)
+    }
+}
+""",
+
+    # ── Dropdown / option picker ──────────────────────────────────────────────
+    "picker": """
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+
+FloatingWindow {
+    id: win
+    title: "{title}"
+    implicitWidth: 420
+    implicitHeight: 200
+    visible: true
+
+    Rectangle {
+        anchors.fill: parent
+        color: "#012946"
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 24
+        spacing: 14
+
+        Text {
+            text: "{title}"
+            font.pixelSize: 16
+            font.bold: true
+            color: "#ffffff"
+            Layout.fillWidth: true
+        }
+        Text {
+            text: "{message}"
+            font.pixelSize: 13
+            color: "#cccccc"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
+        ComboBox {
+            id: combo
+            model: {options}
+            Layout.fillWidth: true
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Button {
+                text: "Cancel"
+                Layout.fillWidth: true
+                onClicked: Qt.exit(0)
+            }
+            Button {
+                text: "Select"
+                Layout.fillWidth: true
+                onClicked: Qt.exit(combo.currentIndex + 1)
+            }
+        }
+    }
+}
+""",
+
+    # ── Toast / passive notification (auto-dismisses) ─────────────────────────
+    # Uses PanelWindow correctly: anchored to bottom edge, margins push it inward
+    "notify": """
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+
+PanelWindow {
+    id: win
+    implicitWidth: 360
+    implicitHeight: 90
+    color: "transparent"
+
+    // Anchor to bottom center - margins offset from the edge
+    anchors {
+        bottom: true
+    }
+    margins {
+        bottom: 40
+    }
+
+    exclusionMode: ExclusionMode.Ignore
+
+    Rectangle {
+        anchors.fill: parent
+        radius: 12
+        color: "{bg_color}"
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 4
+
+            Text {
+                text: "{title}"
+                font.pixelSize: 14
+                font.bold: true
+                color: "#ffffff"
+            }
+            Text {
+                text: "{message}"
+                font.pixelSize: 12
+                color: "#dddddd"
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    Timer {
+        interval: {duration_ms}
+        running: true
+        onTriggered: Qt.exit(0)
+    }
+}
+""",
+
+    # ── Progress / status window ──────────────────────────────────────────────
+    "progress": """
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+
+FloatingWindow {
+    id: win
+    title: "{title}"
+    implicitWidth: 420
+    implicitHeight: 160
+    visible: true
+
+    Rectangle {
+        anchors.fill: parent
+        color: "#012946"
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 24
+        spacing: 16
+
+        Text {
+            text: "{title}"
+            font.pixelSize: 16
+            font.bold: true
+            color: "#ffffff"
+            Layout.fillWidth: true
+        }
+        Text {
+            text: "{message}"
+            font.pixelSize: 13
+            color: "#cccccc"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
+        ProgressBar {
+            Layout.fillWidth: true
+            value: {progress}
+            indeterminate: ({progress} < 0)
+        }
+    }
+}
+""",
+
+    # ── Freeform raw QML ──────────────────────────────────────────────────────
+    "custom": "{qml_code}",
+}
+
+
+# ── Helper ───────────────────────────────────────────────────────────────────
+
+def _fill_template(template: str, placeholders: Dict[str, str]) -> str:
+    """Fill placeholders in a QML template string."""
+    for key, value in placeholders.items():
+        template = template.replace("{" + key + "}", str(value))
+    return template
+
+
+def _sanitize_qml(qml: str) -> str:
+    """Apply minimal fixes to common QML template mistakes.
+
+    - Replace bare `start()` statements inside item bodies (e.g., Timer) with
+      a declarative property `running: true` to avoid parse errors like
+      "Expected token ':'".
+
+    This sanitizer is intentionally conservative and line-oriented to avoid
+    changing user intent in custom QML.
+    """
+    try:
+        import re as _re
+        # Replace lines that are just `start()` (optionally with spaces/semicolon)
+        qml = _re.sub(r"(?m)^[ \t]*start\(\)[ \t]*;?[ \t]*$", "    running: true", qml)
+        return qml
+    except Exception:
+        # If anything goes wrong, return original QML unmodified
+        return qml
+
+
+def _write_qml(qml: str) -> str:
+    """Write QML to a temp file and return its path."""
+    f = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".qml", prefix="mcp_gui_",
+        delete=False, dir="/tmp"
+    )
+    f.write(qml)
+    f.flush()
+    f.close()
+    return f.name
+
+#-------------------------
+
 class ToolCallHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Suppress default logging
-    
+
     def do_POST(self):
         if self.path == '/call-tool':
             content_length = int(self.headers.get('Content-Length', 0))
@@ -75,7 +429,7 @@ class ToolCallHandler(BaseHTTPRequestHandler):
                 data = json.loads(body)
                 tool_name = data.get('name')
                 arguments = data.get('arguments', {})
-                
+
                 if tool_name in TOOL_REGISTRY:
                     result = TOOL_REGISTRY[tool_name](**arguments)
                     try:
@@ -90,7 +444,7 @@ class ToolCallHandler(BaseHTTPRequestHandler):
                 else:
                     response = json.dumps({"error": f"Tool '{tool_name}' not found"})
                     self.send_response(404)
-                
+
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(response.encode('utf-8'))
@@ -102,7 +456,7 @@ class ToolCallHandler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
-    
+
     def do_GET(self):
         if self.path == '/tools':
             trigger_notification("RIGEL Tool List Requested", "Rigel made a request to list all available tools.")
@@ -191,7 +545,7 @@ def create_file(directory, file_name) -> Dict[str, Any]:
             _tool_message = _tool_message[:247] + '...'
         trigger_notification(f'Tool executed: create_file', _tool_message)
         return _tool_result
-    
+
 @mcp.tool()
 def create_folder(folder_location_and_name) -> Dict[str, Any]:
     """
@@ -219,7 +573,7 @@ def create_folder(folder_location_and_name) -> Dict[str, Any]:
             _tool_message = _tool_message[:247] + '...'
         trigger_notification(f'Tool executed: create_folder', _tool_message)
         return _tool_result
-    
+
 
 
 @mcp.tool()
@@ -541,7 +895,7 @@ def check_usb_devices() -> Dict[str, Any]:
         return {"success": True, "devices": devices}
     except Exception as e:
         return {"success": False, "error": str(e)}
-    
+
 def check_network_status() -> Dict[str, Any]:
     """Check network connectivity and interfaces"""
     try:
@@ -568,7 +922,7 @@ def check_network_status() -> Dict[str, Any]:
                 ip = re.findall(r"inet\s+([\d\.]+)", line)
                 if ip:
                     current_iface["ip_addresses"].append(ip[0])
-        
+
         if current_iface:
             interfaces.append(current_iface)
 
@@ -1372,7 +1726,7 @@ def get_media_info() -> Dict[str, Any]:
                 player_name = line.split('"')[-2]
                 players.append(player_name)
 
-        
+
         _tool_result = {"success": True, "players": players}
         try:
             _tool_message = json.dumps(_tool_result)
@@ -1811,7 +2165,7 @@ def get_ztos_aci_devices(only_reachable: bool = True) -> List[Dict[str, str]]:
     if only_reachable:
         args.append("--id-only")
     result = subprocess.run(args, capture_output=True, text=True)
-    
+
     devices = []
     for line in result.stdout.strip().splitlines():
         if "-" in line:
@@ -2287,95 +2641,95 @@ def ztos_aci_list_user_contacts() -> Dict[str, Any]:
         _tool_message = _tool_message[:247] + '...'
     trigger_notification(f'Tool executed: ztos_aci_list_user_contacts', _tool_message)
     return _tool_result
-    
 
-@mcp.tool()
-def browser_agent_task(task: str, model: str = "gemini-2.5-flash", timeout: int = 120) -> Dict[str, Any]:
-    """
-    Launch an autonomous AI browser agent that controls a real web browser to complete any web-based task.
-    The agent can open websites, click buttons, fill forms, scroll, search, and extract information — just like a human would.
 
-    Best used for:
-    - Web searches with specific goals  eg: "search duckduckgo for the capital of Japan and return the answer"
-    - Filling and submitting forms      eg: "go to example.com/contact and fill the form with name=John, email=john@x.com"
-    - Extracting structured data        eg: "go to news.ycombinator.com and return the top 5 post titles"
-    - Multi-step web workflows          eg: "go to reddit.com/r/python, find the top post this week, and summarize the comments"
-    - Checking live website content     eg: "go to example.com and tell me what the current price of the Pro plan is"
+# @mcp.tool()
+# def browser_agent_task(task: str, model: str = "gemini-2.5-flash", timeout: int = 120) -> Dict[str, Any]:
+#     """
+#     Launch an autonomous AI browser agent that controls a real web browser to complete any web-based task.
+#     The agent can open websites, click buttons, fill forms, scroll, search, and extract information — just like a human would.
 
-    Not suitable for:
-    - Tasks that don't require a browser (use run_bash_command instead)
-    - Downloading large files (may time out)
-    - Sites that require pre-authenticated sessions unless cookies are set up
+#     Best used for:
+#     - Web searches with specific goals  eg: "search duckduckgo for the capital of Japan and return the answer"
+#     - Filling and submitting forms      eg: "go to example.com/contact and fill the form with name=John, email=john@x.com"
+#     - Extracting structured data        eg: "go to news.ycombinator.com and return the top 5 post titles"
+#     - Multi-step web workflows          eg: "go to reddit.com/r/python, find the top post this week, and summarize the comments"
+#     - Checking live website content     eg: "go to example.com and tell me what the current price of the Pro plan is"
 
-    eg: browser_agent_task("use duckduckgo and find the CEO of OpenAI")
-    """
-    try:
-        import asyncio
-        from browser_use import Agent, ChatGoogle
-        from dotenv import load_dotenv
-        load_dotenv()
+#     Not suitable for:
+#     - Tasks that don't require a browser (use run_bash_command instead)
+#     - Downloading large files (may time out)
+#     - Sites that require pre-authenticated sessions unless cookies are set up
 
-        async def run_agent():
-            llm = ChatGoogle(model=model)
-            agent = Agent(task=task, llm=llm)
-            result = await asyncio.wait_for(agent.run(), timeout=timeout)
-            return result
+#     eg: browser_agent_task("use duckduckgo and find the CEO of OpenAI")
+#     """
+#     try:
+#         import asyncio
+#         from browser_use import Agent, ChatGoogle
+#         from dotenv import load_dotenv
+#         load_dotenv()
 
-        # Handle already-running event loops (e.g. Jupyter / some MCP servers)
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, run_agent())
-                result = future.result(timeout=timeout + 5)
-        except RuntimeError:
-            result = asyncio.run(run_agent())
+#         async def run_agent():
+#             llm = ChatGoogle(model=model)
+#             agent = Agent(task=task, llm=llm)
+#             result = await asyncio.wait_for(agent.run(), timeout=timeout)
+#             return result
 
-        _tool_result = {
-            "success": True,
-            "task": task,
-            "model": model,
-            "result": str(result) if result else "Task completed with no output"
-        }
-        try:
-            _tool_message = json.dumps(_tool_result)
-        except Exception:
-            _tool_message = str(_tool_result)
-        if len(_tool_message) > 250:
-            _tool_message = _tool_message[:247] + '...'
-        trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
-        return _tool_result
+#         # Handle already-running event loops (e.g. Jupyter / some MCP servers)
+#         try:
+#             loop = asyncio.get_running_loop()
+#             import concurrent.futures
+#             with concurrent.futures.ThreadPoolExecutor() as pool:
+#                 future = pool.submit(asyncio.run, run_agent())
+#                 result = future.result(timeout=timeout + 5)
+#         except RuntimeError:
+#             result = asyncio.run(run_agent())
 
-    except asyncio.TimeoutError:
-        _tool_result = {"success": False, "error": f"Browser agent timed out after {timeout}s"}
-        try:
-            _tool_message = json.dumps(_tool_result)
-        except Exception:
-            _tool_message = str(_tool_result)
-        if len(_tool_message) > 250:
-            _tool_message = _tool_message[:247] + '...'
-        trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
-        return _tool_result
-    except ImportError as e:
-        _tool_result = {"success": False, "error": f"Missing dependency: {e}. Run: pip install browser-use langchain-google-genai"}
-        try:
-            _tool_message = json.dumps(_tool_result)
-        except Exception:
-            _tool_message = str(_tool_result)
-        if len(_tool_message) > 250:
-            _tool_message = _tool_message[:247] + '...'
-        trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
-        return _tool_result
-    except Exception as e:
-        _tool_result = {"success": False, "error": str(e)}
-        try:
-            _tool_message = json.dumps(_tool_result)
-        except Exception:
-            _tool_message = str(_tool_result)
-        if len(_tool_message) > 250:
-            _tool_message = _tool_message[:247] + '...'
-        trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
-        return _tool_result
+#         _tool_result = {
+#             "success": True,
+#             "task": task,
+#             "model": model,
+#             "result": str(result) if result else "Task completed with no output"
+#         }
+#         try:
+#             _tool_message = json.dumps(_tool_result)
+#         except Exception:
+#             _tool_message = str(_tool_result)
+#         if len(_tool_message) > 250:
+#             _tool_message = _tool_message[:247] + '...'
+#         trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
+#         return _tool_result
+
+#     except asyncio.TimeoutError:
+#         _tool_result = {"success": False, "error": f"Browser agent timed out after {timeout}s"}
+#         try:
+#             _tool_message = json.dumps(_tool_result)
+#         except Exception:
+#             _tool_message = str(_tool_result)
+#         if len(_tool_message) > 250:
+#             _tool_message = _tool_message[:247] + '...'
+#         trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
+#         return _tool_result
+#     except ImportError as e:
+#         _tool_result = {"success": False, "error": f"Missing dependency: {e}. Run: pip install browser-use langchain-google-genai"}
+#         try:
+#             _tool_message = json.dumps(_tool_result)
+#         except Exception:
+#             _tool_message = str(_tool_result)
+#         if len(_tool_message) > 250:
+#             _tool_message = _tool_message[:247] + '...'
+#         trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
+#         return _tool_result
+#     except Exception as e:
+#         _tool_result = {"success": False, "error": str(e)}
+#         try:
+#             _tool_message = json.dumps(_tool_result)
+#         except Exception:
+#             _tool_message = str(_tool_result)
+#         if len(_tool_message) > 250:
+#             _tool_message = _tool_message[:247] + '...'
+#         trigger_notification(f'Tool executed: browser_agent_task', _tool_message)
+#         return _tool_result
 
 @mcp.tool()
 def ztos_aci_set_volume(device_id: str, volume: int) -> Dict[str, Any]:
@@ -2435,7 +2789,741 @@ def ztos_aci_set_volume(device_id: str, volume: int) -> Dict[str, Any]:
         trigger_notification(f'Tool executed: ztos_aci_set_volume', _tool_message)
         return _tool_result
 
+@mcp.tool()
+def search_web(query: str, max_results: int = 5, timeout: int = 30) -> Dict[str, Any]:
+    """
+    Search the web using DuckDuckGo and return summarized results.
+    Tries news search first, falls back to general text search if no news results found.
+    Best used for current events, quick lookups, and factual questions.
 
+    Best used for:
+    - Current events / breaking news     eg: search_web("latest Python 3.13 release notes")
+    - Quick factual lookups              eg: search_web("who is the CEO of NVIDIA")
+    - Research with multiple results     eg: search_web("best Linux distros 2024", max_results=5)
+    - Checking if something exists       eg: search_web("is there a KDE Connect Windows client")
+
+    Not suitable for:
+    - Tasks needing full page content (use browser_agent_task instead)
+    - Queries needing login-gated results
+
+    eg: search_web("OpenAI latest news")
+    """
+    try:
+        from ddgs import DDGS
+        trigger_notification(f'WebSearch Tool executed with query: {query}', f'search_web, max_results={max_results}, timeout={timeout}')
+
+        with DDGS() as ddgs:
+            results = []
+
+            # 1. Try news search first
+            try:
+                results = list(ddgs.news(query, region="us-en", max_results=max_results))
+            except Exception as e:
+                pass  # silently fall through to text search
+
+            # 2. Fall back to text search
+            if not results:
+                try:
+                    results = list(ddgs.text(query, region="us-en", max_results=max_results))
+                except Exception as e:
+                    return {"success": False, "error": f"Both news and text search failed: {e}"}
+
+            if not results:
+                return {
+                    "success": False,
+                    "query": query,
+                    "error": "No results found for this query"
+                }
+
+            # Normalize results (news and text have slightly different keys)
+            formatted = []
+            for r in results:
+                formatted.append({
+                    "title": r.get("title", "No Title"),
+                    "snippet": r.get("body", r.get("snippet", "No snippet"))[:400],
+                    "url": r.get("url", r.get("href", "No URL")),
+                    "source": r.get("source", r.get("publisher", "Unknown")),
+                    "date": r.get("date", "Unknown date")
+                })
+
+            return {
+                "success": True,
+                "query": query,
+                "result_count": len(formatted),
+                "search_type": "news" if results[0].get("source") else "text",
+                "results": formatted
+            }
+
+    except ImportError:
+        return {"success": False, "error": "duckduckgo-search not installed. Run: pip install duckduckgo-search"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@mcp.tool()
+def display_interactive_components_for_user(
+    template: str,
+    placeholders: Dict[str, str],
+    mode: str = "blocking",
+    timeout: int = 60
+) -> Dict[str, Any]:
+    trigger_notification(f'GUI Tool executed with template: {template}', f'mode={mode}, timeout={timeout}s, placeholders={placeholders}')
+    """
+    Spawn a native Quickshell/QML GUI window and optionally wait for user interaction.
+    Use this whenever you need to interact with the user visually, get confirmation,
+    collect input, show a notification, or launch a live runtime UI.
+
+    SET THE BACKGROUND COLOR TO BLACK
+
+    Templates:
+    - "confirm"  → Yes/No dialog. Returns confirmed: true/false
+    - "input"    → Text input dialog. Returns user_input: "..."
+    - "picker"   → Dropdown selector. Returns selected_index and selected_value
+    - "notify"   → Toast notification (auto-dismisses). Fire-and-forget
+    - "progress" → Progress/status window. Returns pid so agent can kill it later
+    - "custom"   → Agent provides raw QML via placeholders["qml_code"]
+
+    Modes:
+    - "blocking"      → Wait for user to interact, return result (confirm/input/picker)
+    - "fire_and_forget" → Launch and return immediately (notify/progress/custom apps)
+
+    Placeholders per template:
+    - confirm:  title, message, confirm_label (default OK), cancel_label (default Cancel)
+    - input:    title, message, placeholder, echo_mode (TextField.Normal / TextField.Password)
+    - picker:   title, message, options (as QML array eg '["Option A","Option B"]')
+    - notify:   title, message, bg_color (eg "#2d2d2d"), duration_ms (eg "3000")
+    - progress: title, message, progress (0.0-1.0 or -1 for indeterminate)
+    - custom:   qml_code (full raw QML string)
+
+    eg: display_interactive_components_for_user("confirm", {"title": "Delete file?", "message": "This cannot be undone.", "confirm_label": "Delete", "cancel_label": "Cancel"})
+    eg: display_interactive_components_for_user("input",   {"title": "Enter your name", "message": "Used for the report.", "placeholder": "John Doe", "echo_mode": "TextField.Normal"})
+    eg: display_interactive_components_for_user("notify",  {"title": "Done!", "message": "File saved.", "bg_color": "#27ae60", "duration_ms": "3000"}, mode="fire_and_forget")
+    eg: display_interactive_components_for_user("progress",{"title": "Installing...", "message": "Please wait.", "progress": "-1"}, mode="fire_and_forget")
+    """
+    try:
+        # ── Defaults for optional placeholders ───────────────────────────────
+        defaults = {
+            "confirm_label": "OK",
+            "cancel_label": "Cancel",
+            "placeholder": "",
+            "echo_mode": "TextField.Normal",
+            "bg_color": "#012946",
+            "duration_ms": "3000",
+            "progress": "-1",
+        }
+        merged = {**defaults, **placeholders}
+
+        # ── Get and fill template ─────────────────────────────────────────────
+        if template not in QML_TEMPLATES:
+            return {
+                "success": False,
+                "error": f"Unknown template '{template}'. Available: {list(QML_TEMPLATES.keys())}"
+            }
+
+        qml = _fill_template(QML_TEMPLATES[template], merged)
+        qml = _sanitize_qml(qml)
+        qml_path = _write_qml(qml)
+
+        # ── Launch Quickshell ─────────────────────────────────────────────────
+        cmd = ["quickshell", "-p", qml_path]
+
+        if mode == "fire_and_forget":
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "QT_QPA_PLATFORM": "wayland;xcb"}
+            )
+            return {
+                "success": True,
+                "mode": "fire_and_forget",
+                "template": template,
+                "pid": proc.pid,
+                "qml_path": qml_path,
+                "note": "Use kill_gui_window(pid) to close this window when done"
+            }
+
+        # Blocking mode — wait for exit code + stdout
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "QT_QPA_PLATFORM": "wayland;xcb"}
+            )
+            stdout, stderr = proc.communicate(timeout=timeout)
+            exit_code = proc.returncode
+            user_output = stdout.decode().strip()
+
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            os.unlink(qml_path)
+            return {"success": False, "error": f"GUI timed out after {timeout}s — window closed"}
+
+        os.unlink(qml_path)
+
+        # ── Parse result by template ──────────────────────────────────────────
+        if template == "confirm":
+            return {
+                "success": True,
+                "template": "confirm",
+                "confirmed": exit_code == 1,
+                "exit_code": exit_code
+            }
+
+        elif template == "input":
+            if exit_code == 0:
+                return {"success": True, "template": "input", "cancelled": True, "user_input": None}
+            return {
+                "success": True,
+                "template": "input",
+                "cancelled": False,
+                "user_input": user_output
+            }
+
+        elif template == "picker":
+            if exit_code == 0:
+                return {"success": True, "template": "picker", "cancelled": True, "selected_index": None, "selected_value": None}
+            selected_index = exit_code - 1
+            options_raw = merged.get("options", "[]")
+            try:
+                options = json.loads(options_raw)
+                selected_value = options[selected_index] if 0 <= selected_index < len(options) else None
+            except Exception:
+                selected_value = None
+            return {
+                "success": True,
+                "template": "picker",
+                "cancelled": False,
+                "selected_index": selected_index,
+                "selected_value": selected_value
+            }
+
+        elif template in ("notify", "progress", "custom"):
+            return {
+                "success": True,
+                "template": template,
+                "exit_code": exit_code,
+                "stdout": user_output,
+                "stderr": stderr.decode().strip()
+            }
+
+        return {"success": True, "exit_code": exit_code, "stdout": user_output}
+
+    except FileNotFoundError:
+        return {"success": False, "error": "quickshell not found. Install from https://quickshell.outfoxxed.me"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@mcp.tool()
+def initialize_project(ProjectName: str) -> Dict[str, Any]:
+    """
+    Initialize a new project with the given name
+    eg: initialize_project("MyNewProject")
+    The  project will be created in `/home/zerone/Documents/Projects`
+    and will launch a Visual Studio Code instance in that directory.
+
+    Next Step for the Agent:
+    - Initialize a git repository in this path, then create a README.md
+    """
+    try:
+        project_path = f"/home/zerone/Documents/Projects/{ProjectName}"
+        subprocess.run(["mkdir", "-p", project_path], check=True)
+        subprocess.run(["code", project_path], check=True)
+        return {"status": "success", "message": f"Project '{ProjectName}' initialized at {project_path}"}
+    except subprocess.CalledProcessError as e:
+        return {"status": "error", "message": str(e)}
+
+# SYSTEMCTL SERVICES
+@mcp.tool()
+def search_services(pattern: str) -> Dict[str, Any]:
+    """
+    Search for systemd services using a regex pattern.
+    eg: search_services("nginx|apache") or search_services(".*sql.*")
+
+    Returns a list of matching service names with their current state.
+    Next Step for the Agent:
+    - Use the returned service names with start/stop/enable/restart tools.
+    """
+    try:
+        result = subprocess.run(
+            ["systemctl", "list-units", "--type=service", "--all", "--no-pager", "--plain"],
+            capture_output=True, text=True, check=True
+        )
+        services = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].endswith(".service"):
+                name, load, active, sub = parts[0], parts[1], parts[2], parts[3]
+                if re.search(pattern, name, re.IGNORECASE):
+                    services.append({
+                        "name": name,
+                        "load": load,
+                        "active": active,
+                        "sub": sub,
+                    })
+        return {"status": "success", "matches": services, "count": len(services)}
+    except subprocess.CalledProcessError as e:
+        return {"status": "error", "message": e.stderr or str(e)}
+    except re.error as e:
+        return {"status": "error", "message": f"Invalid regex pattern: {e}"}
+
+
+@mcp.tool()
+def get_service_status(service_name: str) -> Dict[str, Any]:
+    """
+    Get the detailed status of a systemd service.
+    eg: get_service_status("nginx.service") or get_service_status("nginx")
+
+    Automatically appends `.service` if no suffix is provided.
+    Next Step for the Agent:
+    - Use start_service / stop_service / restart_service to change the state.
+    """
+    service_name = _normalize(service_name)
+    try:
+        result = subprocess.run(
+            ["systemctl", "status", service_name, "--no-pager"],
+            capture_output=True, text=True
+        )
+        # status returns exit code 3 when inactive — still useful output
+        return {
+            "status": "success",
+            "service": service_name,
+            "output": result.stdout or result.stderr,
+            "active": result.returncode == 0,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+def start_service(service_name: str) -> Dict[str, Any]:
+    """
+    Start a systemd service.
+    eg: start_service("nginx") or start_service("postgresql.service")
+
+    Requires sufficient privileges (run the MCP server as root or with sudo access).
+    Next Step for the Agent:
+    - Verify with get_service_status that the service is now active.
+    """
+    return _run_systemctl("start", service_name)
+
+
+@mcp.tool()
+def stop_service(service_name: str) -> Dict[str, Any]:
+    """
+    Stop a systemd service.
+    eg: stop_service("nginx") or stop_service("postgresql.service")
+
+    Requires sufficient privileges (run the MCP server as root or with sudo access).
+    Next Step for the Agent:
+    - Verify with get_service_status that the service is now inactive.
+    """
+    return _run_systemctl("stop", service_name)
+
+
+@mcp.tool()
+def restart_service(service_name: str) -> Dict[str, Any]:
+    """
+    Restart a systemd service.
+    eg: restart_service("nginx") or restart_service("postgresql.service")
+
+    Requires sufficient privileges (run the MCP server as root or with sudo access).
+    Next Step for the Agent:
+    - Verify with get_service_status that the service came back up cleanly.
+    """
+    return _run_systemctl("restart", service_name)
+
+
+@mcp.tool()
+def enable_service(service_name: str) -> Dict[str, Any]:
+    """
+    Enable a systemd service to start automatically at boot.
+    eg: enable_service("nginx") or enable_service("postgresql.service")
+
+    This does NOT start the service immediately — combine with start_service if needed.
+    Requires sufficient privileges (run the MCP server as root or with sudo access).
+    Next Step for the Agent:
+    - Optionally call start_service if the service should also be running right now.
+    """
+    return _run_systemctl("enable", service_name)
+
+
+@mcp.tool()
+def disable_service(service_name: str) -> Dict[str, Any]:
+    """
+    Disable a systemd service so it no longer starts at boot.
+    eg: disable_service("nginx") or disable_service("postgresql.service")
+
+    This does NOT stop the service immediately — combine with stop_service if needed.
+    Requires sufficient privileges (run the MCP server as root or with sudo access).
+    Next Step for the Agent:
+    - Optionally call stop_service if the service should also be stopped right now.
+    """
+    return _run_systemctl("disable", service_name)
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _normalize(name: str) -> str:
+    """Append .service suffix if the caller omitted it."""
+    return name if "." in name else f"{name}.service"
+
+
+def _run_systemctl(action: str, service_name: str) -> Dict[str, Any]:
+    """Shared runner for all mutating systemctl commands."""
+    service_name = _normalize(service_name)
+    try:
+        result = subprocess.run(
+            ["systemctl", action, service_name],
+            capture_output=True, text=True, check=True
+        )
+        return {
+            "status": "success",
+            "service": service_name,
+            "action": action,
+            "output": result.stdout or f"Service '{service_name}' {action}ed successfully.",
+        }
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "service": service_name,
+            "action": action,
+            "message": e.stderr or str(e),
+        }
+
+# RIGEL Claude Code Integration
+_agents: Dict[str, Dict] = {}
+
+def _strip_ansi(text: str) -> str:
+    ansi_escape = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07)')
+    return ansi_escape.sub('', text)
+
+def _clean_output(text: str) -> str:
+    text = _strip_ansi(text)
+    text = text.replace('\r\r\n', '\n').replace('\r\n', '\n').replace('\r', '\n')
+    lines = [l for l in text.splitlines() if l.strip()]
+    return '\n'.join(lines)
+
+def _read_output(child, timeout=2) -> str:
+    chunks = []
+    while True:
+        try:
+            chunk = child.read_nonblocking(size=10000, timeout=timeout)
+            chunks.append(chunk)
+        except (pexpect.TIMEOUT, pexpect.EOF):
+            break
+    return ''.join(chunks)
+
+def _append_log(agent_id: str, role: str, message: str):
+    agent = _agents.get(agent_id)
+    if not agent:
+        return
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "role": role,
+        "message": message
+    }
+    agent["log"].append(entry)
+    if agent.get("log_file"):
+        with open(agent["log_file"], 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+
+
+@mcp.tool()
+def launch_agent(
+    agent_id: str,
+    model: str = "qwen3.5:cloud",
+    working_dir: Optional[str] = None,
+    log_file: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Launch a Claude Code agent in the background.
+    Returns agent_id and status. Use agent_id for all further interactions.
+    eg: launch_agent("my_agent", model="qwen3.5:cloud", working_dir="/home/user/project")
+    """
+    if agent_id in _agents:
+        return {"success": False, "error": f"Agent '{agent_id}' already exists. Kill it first or use a different ID."}
+
+    try:
+        env = os.environ.copy()
+        if working_dir:
+            os.makedirs(working_dir, exist_ok=True)
+
+        child = pexpect.spawn(
+            f'ollama launch claude --model {model}',
+            encoding='utf-8',
+            timeout=60,
+            cwd=working_dir or os.getcwd(),
+            env=env
+        )
+
+        # Respond to terminal capability queries
+        time.sleep(2)
+        child.send('\x1b]11;rgb:0000/0000/0000\x1b\\')
+        child.send('\x1b[1;1R')
+        time.sleep(3)
+
+        # Read and confirm trust prompt
+        _read_output(child)
+        child.send('\r')
+        time.sleep(4)
+
+        # Read startup screen
+        startup = _clean_output(_read_output(child))
+
+        _agents[agent_id] = {
+            "agent_id": agent_id,
+            "model": model,
+            "child": child,
+            "status": "ready",
+            "working_dir": working_dir or os.getcwd(),
+            "log_file": log_file,
+            "log": [],
+            "last_output": startup,
+            "launched_at": datetime.now().isoformat(),
+            "last_active": datetime.now().isoformat(),
+        }
+
+        _append_log(agent_id, "system", f"Agent launched. Startup: {startup}")
+
+        return {
+            "success": True,
+            "agent_id": agent_id,
+            "status": "ready",
+            "model": model,
+            "working_dir": working_dir or os.getcwd(),
+            "startup_output": startup
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def send_prompt(agent_id: str, prompt: str, wait_seconds: int = 5) -> Dict[str, Any]:
+    """
+    Send a prompt to a running Claude Code agent and return its response.
+    eg: send_prompt("my_agent", "Create a hello world Python script")
+    """
+    agent = _agents.get(agent_id)
+    if not agent:
+        return {"success": False, "error": f"No agent with ID '{agent_id}'. Launch one first."}
+
+    if agent["status"] == "busy":
+        return {"success": False, "error": f"Agent '{agent_id}' is busy. Wait or check state."}
+
+    try:
+        child = agent["child"]
+        agent["status"] = "busy"
+        agent["last_active"] = datetime.now().isoformat()
+
+        _append_log(agent_id, "user", prompt)
+        child.send(prompt + '\r')
+        time.sleep(wait_seconds)
+
+        output = _clean_output(_read_output(child))
+        agent["last_output"] = output
+        agent["status"] = "ready"
+        agent["last_active"] = datetime.now().isoformat()
+
+        _append_log(agent_id, "agent", output)
+
+        return {
+            "success": True,
+            "agent_id": agent_id,
+            "output": output
+        }
+
+    except Exception as e:
+        agent["status"] = "error"
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_agent_output(agent_id: str) -> Dict[str, Any]:
+    """
+    Read the latest output from a Claude Code agent without sending anything.
+    Useful for polling a busy agent.
+    eg: get_agent_output("my_agent")
+    """
+    agent = _agents.get(agent_id)
+    if not agent:
+        return {"success": False, "error": f"No agent with ID '{agent_id}'."}
+
+    try:
+        child = agent["child"]
+        output = _clean_output(_read_output(child, timeout=1))
+
+        if output:
+            agent["last_output"] = output
+            agent["last_active"] = datetime.now().isoformat()
+            _append_log(agent_id, "agent", output)
+
+        return {
+            "success": True,
+            "agent_id": agent_id,
+            "status": agent["status"],
+            "output": output or agent["last_output"],
+            "last_active": agent["last_active"]
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_agent_state(agent_id: str) -> Dict[str, Any]:
+    """
+    Check the state of a Claude Code agent — status, uptime, last activity.
+    eg: get_agent_state("my_agent")
+    """
+    agent = _agents.get(agent_id)
+    if not agent:
+        return {"success": False, "error": f"No agent with ID '{agent_id}'."}
+
+    child = agent["child"]
+    alive = child.isalive()
+
+    if not alive and agent["status"] != "dead":
+        agent["status"] = "dead"
+
+    return {
+        "success": True,
+        "agent_id": agent_id,
+        "status": agent["status"],
+        "alive": alive,
+        "model": agent["model"],
+        "working_dir": agent["working_dir"],
+        "launched_at": agent["launched_at"],
+        "last_active": agent["last_active"],
+        "log_entries": len(agent["log"]),
+        "last_output_preview": agent["last_output"][:300] if agent["last_output"] else ""
+    }
+
+
+@mcp.tool()
+def list_agents() -> Dict[str, Any]:
+    """
+    List all running and dead Claude Code agents.
+    eg: list_agents()
+    """
+    result = []
+    for agent_id, agent in _agents.items():
+        alive = agent["child"].isalive()
+        if not alive and agent["status"] != "dead":
+            agent["status"] = "dead"
+        result.append({
+            "agent_id": agent_id,
+            "status": agent["status"],
+            "alive": alive,
+            "model": agent["model"],
+            "working_dir": agent["working_dir"],
+            "launched_at": agent["launched_at"],
+            "last_active": agent["last_active"],
+        })
+
+    return {"success": True, "agents": result, "total": len(result)}
+
+
+@mcp.tool()
+def get_agent_log(agent_id: str, last_n: int = 20) -> Dict[str, Any]:
+    """
+    Get the conversation log of a Claude Code agent.
+    eg: get_agent_log("my_agent", last_n=10)
+    """
+    agent = _agents.get(agent_id)
+    if not agent:
+        return {"success": False, "error": f"No agent with ID '{agent_id}'."}
+
+    log = agent["log"][-last_n:] if last_n else agent["log"]
+    return {
+        "success": True,
+        "agent_id": agent_id,
+        "total_entries": len(agent["log"]),
+        "returned": len(log),
+        "log": log
+    }
+
+
+@mcp.tool()
+def kill_agent(agent_id: str) -> Dict[str, Any]:
+    """
+    Kill a Claude Code agent and remove it from the registry.
+    eg: kill_agent("my_agent")
+    """
+    agent = _agents.get(agent_id)
+    if not agent:
+        return {"success": False, "error": f"No agent with ID '{agent_id}'."}
+
+    try:
+        child = agent["child"]
+        if child.isalive():
+            child.send('\x03')  # Ctrl+C
+            time.sleep(0.5)
+            child.close(force=True)
+
+        _append_log(agent_id, "system", "Agent killed.")
+        agent["status"] = "dead"
+        del _agents[agent_id]
+
+        return {"success": True, "agent_id": agent_id, "message": "Agent killed and removed."}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def restart_agent(agent_id: str) -> Dict[str, Any]:
+    """
+    Kill and relaunch a Claude Code agent with the same config.
+    eg: restart_agent("my_agent")
+    """
+    agent = _agents.get(agent_id)
+    if not agent:
+        return {"success": False, "error": f"No agent with ID '{agent_id}'."}
+
+    model = agent["model"]
+    working_dir = agent["working_dir"]
+    log_file = agent["log_file"]
+
+    kill_result = kill_agent(agent_id)
+    if not kill_result["success"]:
+        return {"success": False, "error": f"Failed to kill agent: {kill_result['error']}"}
+
+    return launch_agent(agent_id, model=model, working_dir=working_dir, log_file=log_file)
+
+
+# ── Companion tool: kill a fire-and-forget window ────────────────────────────
+
+@mcp.tool()
+def kill_gui_window(pid: int) -> Dict[str, Any]:
+    """
+    Kill a fire-and-forget Quickshell GUI window by its PID.
+    Use this to close progress windows or runtime apps launched with quickshell_gui.
+    eg: kill_gui_window(12345)
+    """
+    try:
+        import signal
+        os.kill(pid, signal.SIGTERM)
+        return {"success": True, "killed_pid": pid}
+    except ProcessLookupError:
+        return {"success": False, "error": f"No process with PID {pid} found"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def initialize_auxiliary_compute_unit() -> Dict[str, Any]:
+    """
+    Initialize the ztOS Auxiliary Compute Unit. 
+    """
+    try:
+        # os.system(adb kill-server && scrcpy  --turn-screen-off --max-size 1024&)
+        subprocess.run(["adb", "kill-server"], check=True)
+        subprocess.Popen(["scrcpy", "--turn-screen-off", "--max-size", "1024"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return {"success": True, "message": "Auxiliary Compute Unit initialized successfully"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     # Register all tools for REST API
@@ -2443,8 +3531,8 @@ if __name__ == "__main__":
         # Original tools
         "current_time": current_time,
         "show_available_commands": show_available_commands,
-        "create_file": create_file,
-        "create_folder": create_folder,
+        # "create_file": create_file,
+        # "create_folder": create_folder,
         # LEGACY TOOLS ############
         # "find_executable": find_executable,
         # "start_application": start_application,
@@ -2452,6 +3540,7 @@ if __name__ == "__main__":
         # "kill_application": kill_application,
         # "kill_pid": kill_pid,
         ###########################
+        "Initialize Zerone Laboratories Auxiliary Compute Interface": initialize_auxiliary_compute_unit,
         "send_dbus_notification": send_dbus_notification,
         "list_usb_devices": check_usb_devices,
         "network_status": check_network_status,
@@ -2497,12 +3586,33 @@ if __name__ == "__main__":
         "ztos_aci_set_volume": ztos_aci_set_volume,
         "ztos_aci_list_user_contacts": ztos_aci_list_user_contacts,
         #WEB INTERACTIONS
-        "browser_interactions": browser_agent_task,
+        "search_web": search_web,
+        #GUI INTERACTIONS
+        "display_interactive_components_for_user": display_interactive_components_for_user,
+        "initialize_a_project": initialize_project,
+        # SYSTEMCTL INTERACTIONS
+        "search_services": search_services,
+        "get_service_status": get_service_status,
+        "start_service": start_service,
+        "stop_service": stop_service,
+        "restart_service": restart_service,
+        "enable_service": enable_service,
+        "disable_service": disable_service,
+        # CLAUDE CODE AGENT INTERACTIONS
+        # "launch_agent": launch_agent,
+        # "send_prompt": send_prompt,
+        # "get_agent_output": get_agent_output,
+        # "get_agent_state": get_agent_state,
+        # "list_agents": list_agents,
+        # "get_agent_log": get_agent_log,
+        # "kill_agent": kill_agent,
+        # "restart_agent": restart_agent,
     })
-    
+    #"browser_interactions": browser_agent_task,  [DOESNT WORK WITHOUT A OPENAI KEY]
+
     # Start REST API in background thread
     rest_thread = threading.Thread(target=start_rest_api, args=(8002,), daemon=True)
     rest_thread.start()
-    
+
     # Run MCP server
     mcp.run(transport="sse")

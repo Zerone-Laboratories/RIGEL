@@ -16,8 +16,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Depends, Header
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Depends, Header, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import asyncio
@@ -30,6 +31,8 @@ import sqlite3
 import hashlib
 import time
 import re
+import secrets
+from pathlib import Path
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -50,6 +53,54 @@ load_dotenv()
 
 # Database initialization
 DB_PATH = "rigel_usage.db"
+
+# Admin key persistence
+ADMIN_KEY_FILE = Path(__file__).resolve().parent / ".xadminkey"
+ADMIN_API_KEY: Optional[str] = None
+
+
+def _read_text_file(path: Path) -> Optional[str]:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        syslog.warning("Failed reading %s: %s", str(path), str(e))
+        return None
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tmp:
+        tmp.write(text)
+        tmp.write("\n")
+        tmp_path = Path(tmp.name)
+
+    os.chmod(tmp_path, 0o600)
+    os.replace(str(tmp_path), str(path))
+
+
+def load_or_create_admin_key() -> str:
+    """Load admin key from env or .xadminkey; otherwise generate and persist."""
+    env_key = (os.getenv("RIGEL_ADMIN_KEY") or "").strip()
+    if env_key:
+        return env_key
+
+    file_key = _read_text_file(ADMIN_KEY_FILE)
+    if file_key:
+        return file_key
+
+    generated = f"rigel_admin_{secrets.token_hex(16)}"
+    try:
+        _atomic_write_text(ADMIN_KEY_FILE, generated)
+        syslog.info("Generated admin key and saved to %s", str(ADMIN_KEY_FILE))
+    except Exception as e:
+        syslog.warning(
+            "Generated admin key but failed to persist to %s: %s",
+            str(ADMIN_KEY_FILE),
+            str(e),
+        )
+    return generated
 
 
 def get_tools_sse_url() -> str:
@@ -339,7 +390,15 @@ session_vector_db = None
 tools_rigel = None
 tools_rigel_signature = None
 inference_engine = os.getenv("NORMAL_CHAT_ENGINE", os.getenv("INFERENCE_ENGINE", "groq")).lower()
-system_prompt = """
+
+def _get_env_system_prompt(default_prompt: str) -> str:
+    prompt = os.getenv("RIGEL_SYSTEM_PROMPT")
+    if prompt:
+        return prompt.replace("\\n", "\n")
+    return default_prompt
+
+system_prompt = _get_env_system_prompt(
+    """
 "You are an academic help assistant that is created by NSBM Green University"
 "Answer all questions to the best of your ability. You should put NSBM First"
 "Do not respond with any negative prespective to NSBM Green University"
@@ -347,6 +406,7 @@ system_prompt = """
 "If user asks details about another University or tries to compare the universities, always favour NSBM"
 "Make your answers detailed and very short at the same time"
 """
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -354,6 +414,14 @@ async def lifespan(app: FastAPI):
     # Startup
     print("Initializing database...")
     init_database()
+
+    # Load or create admin key (used for X-Admin-Key header)
+    global ADMIN_API_KEY
+    ADMIN_API_KEY = load_or_create_admin_key()
+    if os.getenv("RIGEL_ADMIN_KEY"):
+        print("Using admin key from RIGEL_ADMIN_KEY")
+    elif ADMIN_KEY_FILE.exists():
+        print(f"Admin key is stored at: {ADMIN_KEY_FILE}")
     
     # Create a default API key if none exist
     conn = sqlite3.connect(DB_PATH)
@@ -402,6 +470,11 @@ app = FastAPI(
     },
     lifespan=lifespan
 )
+
+# Simple static UI for manual API testing
+_ui_dir = Path(__file__).resolve().parent / "assets" / "web_ui"
+if _ui_dir.exists():
+    app.mount("/ui", StaticFiles(directory=str(_ui_dir), html=True), name="ui")
 
 # Request/Response Models
 class QueryRequest(BaseModel):
@@ -1113,11 +1186,30 @@ async def get_license_info():
     }
     return LicenseResponse(license_info=json.dumps(license_info, indent=2))
 
-# Admin endpoints
-ADMIN_API_KEY = os.getenv("RIGEL_ADMIN_KEY", "rigel_admin_" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:16])
 
+@app.get("/ui-admin-key")
+async def ui_admin_key(request: Request):
+    """Localhost-only helper for the built-in /ui page.
+
+    This endpoint exists purely to improve local development UX.
+    """
+    client_host = request.client.host if request.client else ""
+    if client_host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not ADMIN_API_KEY:
+        raise HTTPException(status_code=500, detail="Admin key not initialized")
+
+    return {"admin_key": ADMIN_API_KEY}
+
+# Admin endpoints
 async def require_admin_key(x_admin_key: str = Header(None, alias="X-Admin-Key")):
     """FastAPI dependency for admin authentication"""
+    if not ADMIN_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Admin key not initialized. Server startup may have failed.",
+        )
     if not x_admin_key or x_admin_key != ADMIN_API_KEY:
         raise HTTPException(
             status_code=403,
@@ -1306,9 +1398,11 @@ async def initialize_rigel():
             import subprocess
             import time
             
+            ollama_host = os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_URL") or "http://localhost:11434"
+
             # Try to connect to Ollama API
             try:
-                response = requests.get("http://localhost:11434/api/version", timeout=2)
+                response = requests.get(f"{ollama_host}/api/version", timeout=2)
                 print(f"Ollama is already running, version: {response.json().get('version', 'unknown')}")
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
                 print("Ollama is not running. Attempting to start Ollama server...")
@@ -1320,7 +1414,7 @@ async def initialize_rigel():
                     start_time = time.time()
                     while time.time() - start_time < 30:  # 30 second timeout
                         try:
-                            response = requests.get("http://localhost:11434/api/version", timeout=2)
+                            response = requests.get(f"{ollama_host}/api/version", timeout=2)
                             if response.status_code == 200:
                                 print(f"Ollama started successfully, version: {response.json().get('version', 'unknown')}")
                                 break
@@ -1336,7 +1430,7 @@ async def initialize_rigel():
             # Check if the required model is available
             model_name = "qwen3:0.6b"
             try:
-                models_response = requests.get("http://localhost:11434/api/tags", timeout=5)
+                models_response = requests.get(f"{ollama_host}/api/tags", timeout=5)
                 models = models_response.json().get('models', [])
                 model_exists = any(model['name'] == model_name for model in models)
                 

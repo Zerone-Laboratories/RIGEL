@@ -20,6 +20,9 @@ from core.rigel import RigelOllama, RigelGroq
 from pydbus import SessionBus, SystemBus
 from gi.repository import GLib
 import os
+import subprocess
+import threading
+import queue
 from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer
 from core.vision import VisionEngine, get_vision_engine
@@ -27,10 +30,10 @@ from core.rdb import DBConn
 import asyncio
 from version import VERSION
 import concurrent.futures
-import os
 import tempfile
 import json
 import re
+import uuid
 import urllib.request
 import urllib.error
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -95,16 +98,73 @@ def call_mcp_tool(tool_name: str, arguments: dict = None, timeout: int = 60) -> 
 
 load_dotenv()
 
-global rigel, system_prompt, synthesizer, recognizer, vision_engine, browser_state
+def _get_env_system_prompt(default_prompt: str) -> str:
+    prompt = os.getenv("RIGEL_SYSTEM_PROMPT")
+    if prompt:
+        return prompt.replace("\\n", "\n")
+    return default_prompt
+
+
+def _synthesis_worker_loop():
+    global synthesizer
+    syslog.info("Synthesis worker thread started")
+    while True:
+        try:
+            request = synthesis_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+
+        if not isinstance(request, dict):
+            syslog.warning("Ignoring invalid synthesis queue item")
+            synthesis_queue.task_done()
+            continue
+
+        text = request.get("text")
+        mode = request.get("mode", "chunk")
+        if text is None:
+            synthesis_queue.task_done()
+            continue
+
+        try:
+            syslog.info(
+                f"Processing queued synthesis request: mode={mode}, text length={len(text)}"
+            )
+            if synthesizer is None:
+                synthesizer = Synthesizer(mode=mode)
+            else:
+                synthesizer.mode = mode
+            synthesizer.synthesize(text)
+            syslog.info("Queued synthesis request completed")
+        except Exception as e:
+            syslog.error(f"Error processing queued synthesis request: {e}")
+        finally:
+            synthesis_queue.task_done()
+
+
+def _ensure_synthesis_worker_running():
+    global synthesis_worker_thread
+    if synthesis_worker_thread is None or not synthesis_worker_thread.is_alive():
+        synthesis_worker_thread = threading.Thread(
+            target=_synthesis_worker_loop,
+            daemon=True,
+        )
+        synthesis_worker_thread.start()
+
+
+global rigel, system_prompt, synthesizer, recognizer, vision_engine, browser_state, synthesis_queue, synthesis_worker_thread
 rigel = None
 synthesizer = None
 recognizer = None
 vision_engine = None
 browser_state = {"playwright": None, "browser": None, "context": None, "page": None}
 session_vector_db = None
-system_prompt = """
+synthesis_queue = queue.Queue()
+synthesis_worker_thread = None
+system_prompt = _get_env_system_prompt(
+    """
 You are RIGEL, a helpful assistant developed by Zerone Laboratories.
 """
+)
 
 class RigelServer(object):
     """
@@ -219,16 +279,16 @@ class RigelServer(object):
         def has_call_tool_agent(text: str) -> bool:
             """
             Check if the input text contains a [CALL_TOOL_AGENT: ...] pattern.
-            
+
             Args:
                 text: The input string to check.
-            
+
             Returns:
                 True if the pattern is found, False otherwise.
             """
-            pattern = r'\[CALL_TOOL_AGENT:\s*.+?\]'
-            return bool(re.search(pattern, text))
-        
+            pattern = r'\[CALL[\s_\-]*TOOL[\s_\-]*AGENT\s*:\s*.+?\]'
+            return bool(re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL))
+
         syslog.info(f"RigelNaturalLanguage called with query: {query[:100]}... (tool memory disabled)")
         persona_profile = """
         Your personality template is,
@@ -253,7 +313,8 @@ class RigelServer(object):
             - App and process management
             - Current time and date retrieval
             - Network and environment inspection
-            - All operating system related tasks should be delegated to the tool agent
+            - Web browsing/searching
+            - All the real-time tasks you cant perform, should delegated to tool agent.
 
             If tools are not required, answer directly.
             Response style:
@@ -266,7 +327,7 @@ class RigelServer(object):
             TEXT = True
             NaturalLanguage = True
             CONVERT NUMBERS->TEXT
-            
+
             Keep it short and concise whenever possible.
         """
         messages = [
@@ -284,31 +345,40 @@ class RigelServer(object):
         syslog.info(f"Memory decision text: {decision_text}")
 
         output = "[CONTEXT: NULL]"
-        if has_call_tool_agent(decision_text):
-            syslog.info("CALL_TOOL_AGENT pattern detected in response, delegating to QueryWithTools")
-            tool_task = self._extract_tool_agent_task(decision_text)
-            if tool_task:
-                output =f"""<TOOL-AGENT-OUTPUT: {self.QueryWithTools(tool_task)}>"""
+        while True:
+            if has_call_tool_agent(decision_text):
+                syslog.info("CALL_TOOL_AGENT pattern detected in response, delegating to QueryWithTools")
+                self.SynthesizeText(f"Establishing Connection with RIGEL Model Context Protocol")
+                tool_task = self._extract_tool_agent_task(decision_text)
+                if tool_task:
+                    output =f"""<TOOL-AGENT-OUTPUT: {self.QueryWithTools(tool_task)}>"""
+                else:
+                    syslog.warning("CALL_TOOL_AGENT pattern detected but failed to extract task, returning original response")
+                    output = "<TOOL-AGENT-OUTPUT: Failiure while extracting the prompt. Notify User>"
+                messages = [
+                    (
+                        "system",
+                        agent_system_prompt
+                    ),
+                    (
+                        "human", f"Output of the tool agent execution for the task '{tool_task}': {output}\n\nUser original request: {query}. Inform the user of the tool agent output and provide a final response."
+                    )
+                ]
+                response = rigel.inference_with_memory(messages=messages, thread_id=id)
+                if has_call_tool_agent(response.content if hasattr(response, "content") else str(response)):
+                    syslog.warning("Second CALL_TOOL_AGENT pattern detected in response after tool execution, this may indicate an issue with the tool agent's response or the memory agent's understanding of it.")
+                    syslog.warning("Reinitializing Tool Loop...")
+                    tool_task = self._extract_tool_agent_task(response.content if hasattr(response, "content") else str(response))
+                else:
+                    break
+
             else:
-                syslog.warning("CALL_TOOL_AGENT pattern detected but failed to extract task, returning original response")
-                output = "<TOOL-AGENT-OUTPUT: Failiure while extracting the prompt. Notify User>"
-            messages = [
-                (
-                    "system",
-                    agent_system_prompt
-                ),
-                (
-                    "human", f"Output of the tool agent execution for the task '{tool_task}': {output}\n\nUser original request: {query}. Inform the user of the tool agent output and provide a final response."
-                )
-            ]
-            response = rigel.inference_with_memory(messages=messages, thread_id=id)
-                 
-        else:
-            syslog.info("No CALL_TOOL_AGENT pattern detected, returning response directly")
-            response = decision_text
-        
+                syslog.info("No CALL_TOOL_AGENT pattern detected, returning response directly")
+                response = decision_text
+                break
+
         return response.content if hasattr(response, "content") else str(response)
-    
+
 
     # LEGACY RIGEL NATURAL LANGUAGE MULTI-AGENT SYSTEM
     # def RigelNaturalLanguage(self, query, id="default"):
@@ -510,10 +580,12 @@ class RigelServer(object):
             else RigelOllama(model_name=tool_model, mcp_endpoint=tool_mcp)
         )
 
-        syslog.info(f"QueryWithTools called with query: {query[:100]}...")
+        syslog.info(f"QueryWithTools called with query: {query}...")
+        print(f"\n\n\n\nTOOL CALL QUERY {query}\n\n\n\n")
+        thread_id = f"tools-{uuid.uuid4()}"
         try:
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(self._run_async_tools_query, query, rigel_agent)
+                future = executor.submit(self._run_async_tools_query, query, rigel_agent, thread_id)
                 result = future.result(timeout=120)
 
             return str(result)
@@ -526,12 +598,17 @@ class RigelServer(object):
             error_msg = f"Error occurred during tool-based inference: {str(e)}"
             syslog.error(error_msg)
             return f"Error: {error_msg}"
+        finally:
+            try:
+                rigel_agent.clear_tools_memory(thread_id)
+            except Exception as cleanup_error:
+                syslog.warning(f"Failed to clear tool memory for thread {thread_id}: {cleanup_error}")
 
-    def _run_async_tools_query(self, query, rigel):
+    def _run_async_tools_query(self, query, rigel, thread_id):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(rigel.inference_with_tools(query))
+            return loop.run_until_complete(rigel.inference_with_tools_and_memory(query, thread_id=thread_id))
         finally:
             loop.close()
 
@@ -551,7 +628,11 @@ class RigelServer(object):
         if not decision_text:
             return None
 
-        match = re.search(r"CALL[\s_\-]*TOOL[\s_\-]*AGENT\s*:\s*(.*)", decision_text, flags=re.IGNORECASE | re.DOTALL)
+        match = re.search(
+            r"\[CALL[\s_\-]*TOOL[\s_\-]*AGENT\s*:\s*(.*?)\]",
+            decision_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
         if not match:
             return None
         task = match.group(1).strip()
@@ -619,31 +700,27 @@ class RigelServer(object):
         return self.QueryWithTools(tool_task)
 
     def SynthesizeText(self, text, mode="chunk"):
-        global synthesizer
-
         try:
             syslog.info(f"SynthesizeText called with mode: {mode}, text length: {len(text)}")
 
-            if synthesizer is None:
-                synthesizer = Synthesizer(mode=mode)
-            else:
-                synthesizer.mode = mode
-            def _synthesize():
-                synthesizer.synthesize(text)
-
-            import threading
-            synthesis_thread = threading.Thread(target=_synthesize)
-            synthesis_thread.daemon = True
-            synthesis_thread.start()
-
-            return f"Text synthesis started successfully with mode: {mode}"
+            _ensure_synthesis_worker_running()
+            request = {
+                "text": text,
+                "mode": mode,
+            }
+            synthesis_queue.put(request)
+            queue_position = synthesis_queue.qsize()
+            return (
+                f"Text synthesis queued successfully with mode: {mode}. "
+                f"Position in queue: {queue_position}"
+            )
 
         except Exception as e:
-            error_msg = f"Error in text synthesis: {str(e)}"
+            error_msg = f"Error queueing text synthesis: {str(e)}"
             syslog.error(error_msg)
             return error_msg
 
-    def RecognizeAudio(self, audio_file_path, model="tiny"):
+    def RecognizeAudio(self, audio_file_path, model="small"):
         global recognizer
 
         try:
