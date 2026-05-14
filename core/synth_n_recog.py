@@ -104,13 +104,45 @@ class Recognizer:
         return best_text
     
 class Synthesizer:
-    def __init__(self, mode="chunk"):
+    SYNTHESIS_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "synthesis_assets")
+
+    def __init__(self, mode="chunk", voice=None):
         self.mode = mode
         self.threaded_execute_counter = None
         self.synthesis_queue = queue.Queue()
         self.playback_queue = queue.Queue()
         self.piper_path = subprocess.check_output(["which", "piper"], text=True).strip()
-        self.model_path = os.path.join(os.path.dirname(__file__), "synthesis_assets", "knight.onnx")
+        voice = voice or os.getenv("VOICE", "knight")
+        self.set_voice(voice)
+
+    def set_voice(self, voice_name):
+        """Switch the synthesis voice model. Falls back to 'knight' if the requested model doesn't exist."""
+        candidate = os.path.join(self.SYNTHESIS_ASSETS_DIR, f"{voice_name}.onnx")
+        if os.path.exists(candidate):
+            self.model_path = candidate
+            self.current_voice = voice_name
+        else:
+            fallback = os.path.join(self.SYNTHESIS_ASSETS_DIR, "knight.onnx")
+            if os.path.exists(fallback):
+                self.model_path = fallback
+                self.current_voice = "knight"
+                print(f"Voice '{voice_name}' not found, falling back to 'knight'")
+            else:
+                raise FileNotFoundError(
+                    f"Voice model '{voice_name}.onnx' not found and fallback 'knight.onnx' is also missing"
+                )
+
+    @staticmethod
+    def list_available_voices():
+        """Return a list of available voice names (without .onnx extension)."""
+        assets_dir = Synthesizer.SYNTHESIS_ASSETS_DIR
+        if not os.path.isdir(assets_dir):
+            return []
+        voices = []
+        for f in os.listdir(assets_dir):
+            if f.endswith(".onnx"):
+                voices.append(f[:-5])  # strip .onnx
+        return sorted(voices)
 
     def _synthesize_chunk(self, chunk, chunk_id, output_file):
         try:
@@ -483,6 +515,65 @@ class LiveVoiceRecognizer:
 
     def __del__(self):
         self.stop_device_capture()
+
+
+def clone_voice(mp3_path, voice_name, language="English (U.S.)", whisper_model="small",
+                sample_rate=22050, single_speaker=True, preprocess=True):
+    """Run the voice cloning pipeline from an MP3 file.
+
+    Spawns piper_mp3_dataset.py as a subprocess to:
+    1. Convert MP3 to WAV segments
+    2. Transcribe with Whisper
+    3. Optionally preprocess for Piper training
+
+    The resulting dataset is placed under core/synthesis_assets/VoiceCloning/dataset/{voice_name}/.
+
+    Returns a dict with status and details.
+    """
+    script_path = os.path.join(
+        os.path.dirname(__file__), "synthesis_assets", "VoiceCloning", "piper_mp3_dataset.py"
+    )
+
+    if not os.path.exists(script_path):
+        return {"status": "error", "message": f"Voice cloning script not found at {script_path}"}
+
+    if not os.path.exists(mp3_path):
+        return {"status": "error", "message": f"MP3 file not found: {mp3_path}"}
+
+    output_root = os.path.join(
+        os.path.dirname(__file__), "synthesis_assets", "VoiceCloning", "dataset"
+    )
+
+    cmd = [
+        "python", script_path,
+        mp3_path,
+        "--language", language,
+        "--output-name", voice_name,
+        "--output-root", output_root,
+        "--whisper-model", whisper_model,
+        "--sample-rate", str(sample_rate),
+    ]
+    if single_speaker:
+        cmd.append("--single-speaker")
+    if preprocess:
+        cmd.append("--preprocess")
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return {
+            "status": "started",
+            "message": f"Voice cloning pipeline started for '{voice_name}'",
+            "pid": proc.pid,
+            "output_dir": str(output_root / voice_name),
+            "note": "Dataset preparation in progress. After completion, run Piper training to produce the .onnx model.",
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to start voice cloning: {str(e)}"}
 
 
 if __name__ == "__main__":

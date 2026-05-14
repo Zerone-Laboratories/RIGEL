@@ -453,6 +453,9 @@ async def lifespan(app: FastAPI):
     print("  POST /rigel-natural-language - Memory first multi agent natural language flow")
     print("  POST /analyze-image - Analyze image content with vision engine")
     print("  POST /synthesize-text - Convert text to speech")
+    print("  GET  /list-voices - List available voice synthesis models")
+    print("  POST /set-voice - Switch the active voice model")
+    print("  POST /clone-voice - Start voice cloning from an MP3 file")
     print("  POST /recognize-audio - Transcribe audio file to text")
     print("  WS  /live-voice-recognition - Live voice recognition via WebSocket")
     print("  GET  /license-info   - Display license and copyright information")
@@ -507,6 +510,15 @@ class AnalyzeImageResponse(BaseModel):
 class SynthesizeRequest(BaseModel):
     text: str
     mode: Optional[str] = "chunk"
+    voice: Optional[str] = None
+
+class SetVoiceRequest(BaseModel):
+    voice: str
+
+class CloneVoiceRequest(BaseModel):
+    mp3_path: str
+    voice_name: str
+    language: Optional[str] = "English (U.S.)"
 
 class RecognizeRequest(BaseModel):
     model: Optional[str] = "tiny"
@@ -1340,11 +1352,14 @@ async def synthesize_text(request: SynthesizeRequest, tenant_info: Dict[str, Any
     try:
         syslog.info(f"SynthesizeText called with mode: {request.mode}, text length: {len(request.text)} by tenant {tenant_info['tenant_id']}")
         
+        voice = request.voice or os.getenv("VOICE", "knight")
         if synthesizer is None:
-            synthesizer = Synthesizer(mode=request.mode)
+            synthesizer = Synthesizer(mode=request.mode, voice=voice)
         else:
             synthesizer.mode = request.mode
-            
+            if request.voice:
+                synthesizer.set_voice(request.voice)
+
         def _synthesize():
             synthesizer.synthesize(request.text)
         
@@ -1365,6 +1380,42 @@ async def synthesize_text(request: SynthesizeRequest, tenant_info: Dict[str, Any
         error_msg = f"Error in text synthesis: {str(e)}"
         syslog.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
+
+@app.get("/list-voices")
+async def list_voices(tenant_info: Dict[str, Any] = Depends(require_api_key)):
+    """List available voice synthesis models"""
+    try:
+        voices = Synthesizer.list_available_voices()
+        return {"voices": voices, "current": synthesizer.current_voice if synthesizer else os.getenv("VOICE", "knight")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/set-voice")
+async def set_voice(request: SetVoiceRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
+    """Switch the active voice synthesis model"""
+    global synthesizer
+    try:
+        if synthesizer is None:
+            synthesizer = Synthesizer(mode="chunk", voice=request.voice)
+        else:
+            synthesizer.set_voice(request.voice)
+        return {"status": "ok", "voice": synthesizer.current_voice}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/clone-voice")
+async def clone_voice_endpoint(request: CloneVoiceRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
+    """Start voice cloning pipeline from an MP3 file"""
+    try:
+        from core.synth_n_recog import clone_voice as _clone_voice
+        result = _clone_voice(
+            request.mp3_path,
+            request.voice_name,
+            language=request.language,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/recognize-audio", response_model=RecognizeResponse)
 async def recognize_audio(
@@ -1935,7 +1986,7 @@ async def initialize_rigel():
     
     print("Initializing voice synthesis and recognition...")
     try:
-        synthesizer = Synthesizer(mode="chunk")
+        synthesizer = Synthesizer(mode="chunk", voice=os.getenv("VOICE", "knight"))
         recognizer = Recognizer(model=os.getenv("VOICE_RECOGNITION_MODEL", "tiny"))
         print("Voice components initialized successfully")
     except Exception as e:

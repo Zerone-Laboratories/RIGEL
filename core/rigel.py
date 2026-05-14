@@ -832,6 +832,41 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             
         return self.os_tools.get_detailed_system_info()
 
+    # ── Voice synthesis helpers ──────────────────────────────────────────
+
+    def list_voices(self):
+        """Return a list of available Piper voice model names."""
+        from core.synth_n_recog import Synthesizer
+        return Synthesizer.list_available_voices()
+
+    def set_voice(self, voice_name):
+        """Switch the active synthesis voice. Returns status dict."""
+        try:
+            from core.synth_n_recog import Synthesizer
+            # Validate the voice exists
+            available = Synthesizer.list_available_voices()
+            if voice_name not in available:
+                return {
+                    "status": "error",
+                    "message": f"Voice '{voice_name}' not found. Available: {', '.join(available)}",
+                }
+            self.current_voice = voice_name
+            return {"status": "ok", "voice": voice_name}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def clone_voice(self, mp3_path, voice_name, language="English (U.S.)", **kwargs):
+        """Start the voice cloning pipeline from an MP3 file. Returns status dict."""
+        try:
+            from core.synth_n_recog import clone_voice as _clone_voice
+            return _clone_voice(mp3_path, voice_name, language=language, **kwargs)
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def get_current_voice(self):
+        """Return the currently configured voice name."""
+        return getattr(self, "current_voice", os.getenv("VOICE", "knight"))
+
 class RigelOllama(Rigel): # RIGEL with ollama backend
     def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
         super().__init__(model_name=model_name, chatmode="ollama", mcp_endpoint=mcp_endpoint)

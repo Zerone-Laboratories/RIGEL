@@ -125,18 +125,21 @@ def _synthesis_worker_loop():
 
         text = request.get("text")
         mode = request.get("mode", "chunk")
+        voice = request.get("voice", "")
         if text is None:
             synthesis_queue.task_done()
             continue
 
         try:
             syslog.info(
-                f"Processing queued synthesis request: mode={mode}, text length={len(text)}"
+                f"Processing queued synthesis request: mode={mode}, voice={voice or 'default'}, text length={len(text)}"
             )
             if synthesizer is None:
-                synthesizer = Synthesizer(mode=mode)
+                synthesizer = Synthesizer(mode=mode, voice=voice or None)
             else:
                 synthesizer.mode = mode
+                if voice:
+                    synthesizer.set_voice(voice)
             synthesizer.synthesize(text)
             syslog.info("Queued synthesis request completed")
         except Exception as e:
@@ -236,6 +239,7 @@ class RigelServer(object):
             <method name='SynthesizeText'>
                 <arg type='s' name='text' direction='in'/>
                 <arg type='s' name='mode' direction='in'/>
+                <arg type='s' name='voice' direction='in'/>
                 <arg type='s' name='result' direction='out'/>
             </method>
             <method name='RecognizeAudio'>
@@ -251,6 +255,19 @@ class RigelServer(object):
             <signal name='TranscriptionUpdate'>
                 <arg type='s' name='text'/>
             </signal>
+            <method name='ListVoices'>
+                <arg type='s' name='result' direction='out'/>
+            </method>
+            <method name='SetVoice'>
+                <arg type='s' name='voice_name' direction='in'/>
+                <arg type='s' name='result' direction='out'/>
+            </method>
+            <method name='CloneVoice'>
+                <arg type='s' name='mp3_path' direction='in'/>
+                <arg type='s' name='voice_name' direction='in'/>
+                <arg type='s' name='language' direction='in'/>
+                <arg type='s' name='result' direction='out'/>
+            </method>
             <method name='GetLicenseInfo'>
                 <arg type='s' name='license_info' direction='out'/>
             </method>
@@ -930,14 +947,15 @@ class RigelServer(object):
     def _execute_nl_tool_task(self, tool_task, thread_id):
         return self.QueryWithTools(tool_task)
 
-    def SynthesizeText(self, text, mode="chunk"):
+    def SynthesizeText(self, text, mode="chunk", voice=""):
         try:
-            syslog.info(f"SynthesizeText called with mode: {mode}, text length: {len(text)}")
+            syslog.info(f"SynthesizeText called with mode: {mode}, voice: {voice or 'default'}, text length: {len(text)}")
 
             _ensure_synthesis_worker_running()
             request = {
                 "text": text,
                 "mode": mode,
+                "voice": voice,
             }
             synthesis_queue.put(request)
             queue_position = synthesis_queue.qsize()
@@ -950,6 +968,38 @@ class RigelServer(object):
             error_msg = f"Error queueing text synthesis: {str(e)}"
             syslog.error(error_msg)
             return error_msg
+
+    def ListVoices(self):
+        """Return a JSON string with available voice model names and the current voice."""
+        try:
+            import json
+            voices = Synthesizer.list_available_voices()
+            current = synthesizer.current_voice if synthesizer else os.getenv("VOICE", "knight")
+            return json.dumps({"voices": voices, "current": current})
+        except Exception as e:
+            return f"Error listing voices: {str(e)}"
+
+    def SetVoice(self, voice_name):
+        """Switch the active synthesis voice model. Returns status string."""
+        global synthesizer
+        try:
+            if synthesizer is None:
+                synthesizer = Synthesizer(mode="chunk", voice=voice_name)
+            else:
+                synthesizer.set_voice(voice_name)
+            return f"Voice set to '{synthesizer.current_voice}'"
+        except Exception as e:
+            return f"Error setting voice: {str(e)}"
+
+    def CloneVoice(self, mp3_path, voice_name, language="English (U.S.)"):
+        """Start the voice cloning pipeline from an MP3 file. Returns status string."""
+        try:
+            import json
+            from core.synth_n_recog import clone_voice as _clone_voice
+            result = _clone_voice(mp3_path, voice_name, language=language)
+            return json.dumps(result)
+        except Exception as e:
+            return f"Error starting voice cloning: {str(e)}"
 
     def RecognizeAudio(self, audio_file_path, model="small"):
         global recognizer
@@ -1274,7 +1324,7 @@ if __name__ == "__main__":
     # Initialize voice components
     print("Initializing voice synthesis and recognition...")
     try:
-        synthesizer = Synthesizer(mode="chunk")
+        synthesizer = Synthesizer(mode="chunk", voice=os.getenv("VOICE", "knight"))
         recognizer = Recognizer(model=os.getenv("VOICE_RECOGNITION_MODEL", "tiny"))
         print("Voice components initialized successfully")
     except Exception as e:
