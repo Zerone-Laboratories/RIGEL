@@ -85,7 +85,7 @@ class DBConn:
             metadatas=[metadata],
         )
 
-    def search_session_context(self, session_id: str, query: str, n_results: int = 4) -> str:
+    def search_session_context(self, session_id: str, query: str, n_results: int = 10) -> str:
         if not session_id:
             return ""
 

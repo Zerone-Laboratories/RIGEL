@@ -22,30 +22,127 @@ import threading
 import queue
 import time
 import re
-import re
+import math
 
 
 class Recognizer:
-    def __init__(self, model="tiny"):
+    def __init__(self, model="small"):
         cache_dir = os.environ.get("WHISPER_CACHE_DIR", os.path.join(os.path.dirname(__file__), "..", ".cache", "whisper"))
         cache_dir = os.path.abspath(cache_dir)
-        self.model = whisper.load_model(model, download_root=cache_dir)
+        self.model_name = model
+        self.cache_dir = cache_dir
+        self.models = [None, None, None]
+        self.model_locks = [threading.Lock(), threading.Lock(), threading.Lock()]
         self.file_path = None
         self.output = None
 
+    def _get_model(self, worker_id):
+        if self.models[worker_id] is None:
+            self.models[worker_id] = whisper.load_model(self.model_name, download_root=self.cache_dir)
+        return self.models[worker_id]
+
+    def _extract_confidence(self, result):
+        segments = result.get("segments", [])
+        confidences = []
+
+        for segment in segments:
+            avg_logprob = segment.get("avg_logprob")
+            if avg_logprob is not None:
+                confidences.append(math.exp(avg_logprob))
+                continue
+
+            confidence = segment.get("confidence")
+            if confidence is not None:
+                confidences.append(confidence)
+
+        if confidences:
+            return sum(confidences) / len(confidences)
+
+        avg_logprob = result.get("avg_logprob")
+        if avg_logprob is not None:
+            return math.exp(avg_logprob)
+
+        return 0.0
+
+    def _transcribe_worker(self, filepath, result_queue, worker_id):
+        try:
+            model = self._get_model(worker_id)
+            with self.model_locks[worker_id]:
+                result = model.transcribe(filepath)
+            confidence = self._extract_confidence(result)
+            result_queue.put((confidence, result.get("text", ""), worker_id))
+        except Exception as e:
+            print(f"Recognition worker {worker_id} failed: {e}")
+            result_queue.put((0.0, "", worker_id))
+
     def transcribe(self, filepath):
         self.file_path = filepath
-        result = self.model.transcribe(self.file_path)
-        return result["text"]
+        result_queue = queue.Queue()
+        threads = []
+
+        for worker_id in range(3):
+            thread = threading.Thread(
+                target=self._transcribe_worker,
+                args=(self.file_path, result_queue, worker_id),
+            )
+            thread.daemon = True
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
+
+        best_confidence = -1.0
+        best_text = ""
+        while not result_queue.empty():
+            confidence, text, worker_id = result_queue.get()
+            print(f"\n\n\n\n\n\nRecognition worker {worker_id} returned confidence={confidence:.4f}\n\n\n\n\n\n")
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_text = text
+
+        return best_text
     
 class Synthesizer:
-    def __init__(self, mode="chunk"):
+    SYNTHESIS_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "synthesis_assets")
+
+    def __init__(self, mode="chunk", voice=None):
         self.mode = mode
         self.threaded_execute_counter = None
         self.synthesis_queue = queue.Queue()
         self.playback_queue = queue.Queue()
         self.piper_path = subprocess.check_output(["which", "piper"], text=True).strip()
-        self.model_path = os.path.join(os.path.dirname(__file__), "synthesis_assets", "jarvis-medium.onnx")
+        voice = voice or os.getenv("VOICE", "knight")
+        self.set_voice(voice)
+
+    def set_voice(self, voice_name):
+        """Switch the synthesis voice model. Falls back to 'knight' if the requested model doesn't exist."""
+        candidate = os.path.join(self.SYNTHESIS_ASSETS_DIR, f"{voice_name}.onnx")
+        if os.path.exists(candidate):
+            self.model_path = candidate
+            self.current_voice = voice_name
+        else:
+            fallback = os.path.join(self.SYNTHESIS_ASSETS_DIR, "knight.onnx")
+            if os.path.exists(fallback):
+                self.model_path = fallback
+                self.current_voice = "knight"
+                print(f"Voice '{voice_name}' not found, falling back to 'knight'")
+            else:
+                raise FileNotFoundError(
+                    f"Voice model '{voice_name}.onnx' not found and fallback 'knight.onnx' is also missing"
+                )
+
+    @staticmethod
+    def list_available_voices():
+        """Return a list of available voice names (without .onnx extension)."""
+        assets_dir = Synthesizer.SYNTHESIS_ASSETS_DIR
+        if not os.path.isdir(assets_dir):
+            return []
+        voices = []
+        for f in os.listdir(assets_dir):
+            if f.endswith(".onnx"):
+                voices.append(f[:-5])  # strip .onnx
+        return sorted(voices)
 
     def _synthesize_chunk(self, chunk, chunk_id, output_file):
         try:
@@ -107,6 +204,32 @@ class Synthesizer:
         except Exception as e:
             print(f"Error playing chunk {chunk_id}: {e}")
 
+    def _split_text_into_chunks(self, text, max_words=80):
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        chunks = []
+        current_words = []
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            words = sentence.split()
+            if len(current_words) + len(words) <= max_words:
+                current_words.extend(words)
+            else:
+                if current_words:
+                    chunks.append(' '.join(current_words).strip())
+                if len(words) <= max_words:
+                    current_words = words
+                else:
+                    # split oversized sentence into smaller pieces
+                    for i in range(0, len(words), max_words):
+                        chunks.append(' '.join(words[i:i + max_words]).strip())
+                    current_words = []
+        if current_words:
+            chunks.append(' '.join(current_words).strip())
+        return [chunk for chunk in chunks if chunk]
+
     def synthesize(self, text):
         def preprocess_for_synthesis(text):
             text = re.sub(r'^\s*\d+\.\s+.*$', '', text, flags=re.MULTILINE)
@@ -123,6 +246,22 @@ class Synthesizer:
 
             text = re.sub(r'^\s*#{1,6}\s+.*$', '', text, flags=re.MULTILINE)
 
+            text = re.sub(r'\[.*?\]\((?:https?://|www\.)[^)]+\)', ' ', text)
+            text = re.sub(r'https?://\S+|www\.\S+', ' ', text, flags=re.IGNORECASE)
+
+            emoji_pattern = re.compile(
+                '[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002700-\U000027BF\U00002600-\U000026FF\U0001F900-\U0001F9FF\U0001FA70-\U0001FAFF\U00002500-\U00002BEF\U0001F700-\U0001F77F]+'
+                , flags=re.UNICODE
+            )
+            text = emoji_pattern.sub('', text)
+
+            # Convert em/en dashes to comma separators, e.g. "clear—your" -> "clear, your"
+            text = re.sub(r'\s*[—–]\s*', ', ', text)
+
+            # Normalize curly apostrophes
+            text = text.replace('’', "'").replace('‘', "'")
+
+            text = re.sub(r"[^A-Za-z0-9\s\.\,\?\!\:\;\-']+", ' ', text)
             text = re.sub(r'\n{2,}', '\n', text)
 
             lines = [line.strip() for line in text.splitlines()]
@@ -136,11 +275,17 @@ class Synthesizer:
             return result.strip()
         text = preprocess_for_synthesis(text)
         if self.mode == "chunk":
-            chunks = re.split(r'[.]\s*', text.strip())
-            chunks = [chunk.strip() for chunk in chunks if chunk.strip()]
+            chunks = self._split_text_into_chunks(text)
             
             print(f"Processing {len(chunks)} chunks...")
             
+            playback_thread = threading.Thread(
+                target=self._play_chunks_sequentially,
+                args=(len(chunks),)
+            )
+            playback_thread.daemon = True
+            playback_thread.start()
+
             synthesis_threads = []
             for i, chunk in enumerate(chunks):
                 output_file = f"output_chunk_{i}.wav"
@@ -153,12 +298,7 @@ class Synthesizer:
                 thread.daemon = True
                 thread.start()
                 synthesis_threads.append(thread)
-            playback_thread = threading.Thread(
-                target=self._play_chunks_sequentially,
-                args=(len(chunks),)
-            )
-            playback_thread.daemon = True
-            playback_thread.start()
+
             for thread in synthesis_threads:
                 thread.join()
             
@@ -185,6 +325,255 @@ class Synthesizer:
             except Exception as e:
                 print(f"Error processing text: {e}")
 
+
+
+class LiveVoiceRecognizer:
+    """Live voice recognition using whisper.cpp binaries (whisper-stream / whisper-cli).
+
+    Two modes:
+      - device capture: uses whisper-stream to capture from a local audio device
+      - audio data: uses whisper-cli to transcribe raw audio data (WAV/PCM)
+    """
+
+    WHISPER_LIVE_DIR = os.path.join(os.path.dirname(__file__), "whisper_live")
+    WHISPER_LIB_DIR = os.path.join(WHISPER_LIVE_DIR, "lib")
+    WHISPER_MODEL_DIR = os.path.join(WHISPER_LIVE_DIR, "models")
+
+    def __init__(self, model="tiny.en", capture_device=-1, threads=8, step=500, length=5000):
+        self.model = model
+        self.capture_device = capture_device
+        self.threads = threads
+        self.step = step
+        self.length = length
+        self._stream_process = None
+        self._resolve_binaries()
+
+    def _resolve_binaries(self):
+        """Locate whisper-stream and whisper-cli binaries."""
+        stream_bin = os.path.join(self.WHISPER_LIVE_DIR, "whisper-stream")
+        cli_bin = os.path.join(self.WHISPER_LIVE_DIR, "whisper-cli")
+        if not os.path.exists(stream_bin):
+            raise FileNotFoundError(f"whisper-stream binary not found at {stream_bin}")
+        if not os.path.exists(cli_bin):
+            raise FileNotFoundError(f"whisper-cli binary not found at {cli_bin}")
+        self.stream_bin = stream_bin
+        self.cli_bin = cli_bin
+
+    def _get_model_path(self):
+        """Resolve model path from model name."""
+        model_file = f"ggml-{self.model}.bin"
+        model_path = os.path.join(self.WHISPER_MODEL_DIR, model_file)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found: {model_path}")
+        return model_path
+
+    def _env(self):
+        """Return environment dict with LD_LIBRARY_PATH set for the bundled libs.
+
+        Forces SDL2 to use PulseAudio so whisper-stream can capture from the
+        host audio device even inside Docker (PULSE_SERVER must be set)."""
+
+        env = os.environ.copy()
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{self.WHISPER_LIB_DIR}:{existing}" if existing else self.WHISPER_LIB_DIR
+        env.setdefault("SDL_AUDIODRIVER", "pulseaudio")
+        return env
+
+    def start_device_capture(self, callback=None):
+        """Start whisper-stream on a capture device.  Transcription lines are read
+        from stdout and passed to *callback*(line: str) if given.
+
+        Returns the Popen process handle.
+        """
+        if self._stream_process is not None:
+            raise RuntimeError("Device capture is already running")
+
+        model_path = self._get_model_path()
+        cmd = [
+            self.stream_bin,
+            "-m", model_path,
+            "-t", str(self.threads),
+            "--step", str(self.step),
+            "--length", str(self.length),
+            "-c", str(self.capture_device),
+        ]
+        self._stream_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=self._env(),
+        )
+
+        if callback:
+
+            def _reader():
+                try:
+                    for line in self._stream_process.stdout:
+                        line = line.strip()
+                        if line:
+                            callback(line)
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_reader, daemon=True)
+            t.start()
+
+        return self._stream_process
+
+    def stop_device_capture(self, timeout=5):
+        """Stop a running whisper-stream process."""
+        if self._stream_process is None:
+            return
+        try:
+            self._stream_process.terminate()
+            self._stream_process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self._stream_process.kill()
+            self._stream_process.wait()
+        finally:
+            self._stream_process = None
+
+    def is_capturing(self):
+        """Return True if device capture is currently running."""
+        return self._stream_process is not None and self._stream_process.poll() is None
+
+    def transcribe_file(self, audio_file_path, extra_args=None):
+        """Transcribe an audio file using whisper-cli.
+
+        Returns the transcription string.
+        """
+        model_path = self._get_model_path()
+        cmd = [
+            self.cli_bin,
+            "-m", model_path,
+            "-t", str(self.threads),
+            "-np",  # no extra prints, just results
+            "-f", audio_file_path,
+        ]
+        if extra_args:
+            cmd.extend(extra_args)
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=self._env(),
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"whisper-cli failed: {result.stderr}")
+        return result.stdout.strip()
+
+    def transcribe_stream(self, audio_data: bytes, extra_args=None):
+        """Transcribe raw audio data (WAV bytes) via whisper-cli.
+
+        Writes data to a temp file then calls whisper-cli.
+        Returns the transcription string.
+        """
+        import tempfile
+        suffix = ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(audio_data)
+            tmp_path = tmp.name
+        try:
+            return self.transcribe_file(tmp_path, extra_args=extra_args)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def transcribe_stream_iter(self, audio_file_path, extra_args=None):
+        """Yield transcription lines as they appear from whisper-cli (live mode).
+
+        Uses whisper-cli without -np so each segment is printed line-by-line.
+        """
+        model_path = self._get_model_path()
+        cmd = [
+            self.cli_bin,
+            "-m", model_path,
+            "-t", str(self.threads),
+            "-f", audio_file_path,
+        ]
+        if extra_args:
+            cmd.extend(extra_args)
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=self._env(),
+        )
+        try:
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    yield line
+        finally:
+            proc.stdout.close()
+            proc.wait()
+
+    def __del__(self):
+        self.stop_device_capture()
+
+
+def clone_voice(mp3_path, voice_name, language="English (U.S.)", whisper_model="small",
+                sample_rate=22050, single_speaker=True, preprocess=True):
+    """Run the voice cloning pipeline from an MP3 file.
+
+    Spawns piper_mp3_dataset.py as a subprocess to:
+    1. Convert MP3 to WAV segments
+    2. Transcribe with Whisper
+    3. Optionally preprocess for Piper training
+
+    The resulting dataset is placed under core/synthesis_assets/VoiceCloning/dataset/{voice_name}/.
+
+    Returns a dict with status and details.
+    """
+    script_path = os.path.join(
+        os.path.dirname(__file__), "synthesis_assets", "VoiceCloning", "piper_mp3_dataset.py"
+    )
+
+    if not os.path.exists(script_path):
+        return {"status": "error", "message": f"Voice cloning script not found at {script_path}"}
+
+    if not os.path.exists(mp3_path):
+        return {"status": "error", "message": f"MP3 file not found: {mp3_path}"}
+
+    output_root = os.path.join(
+        os.path.dirname(__file__), "synthesis_assets", "VoiceCloning", "dataset"
+    )
+
+    cmd = [
+        "python", script_path,
+        mp3_path,
+        "--language", language,
+        "--output-name", voice_name,
+        "--output-root", output_root,
+        "--whisper-model", whisper_model,
+        "--sample-rate", str(sample_rate),
+    ]
+    if single_speaker:
+        cmd.append("--single-speaker")
+    if preprocess:
+        cmd.append("--preprocess")
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return {
+            "status": "started",
+            "message": f"Voice cloning pipeline started for '{voice_name}'",
+            "pid": proc.pid,
+            "output_dir": str(output_root / voice_name),
+            "note": "Dataset preparation in progress. After completion, run Piper training to produce the .onnx model.",
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to start voice cloning: {str(e)}"}
 
 
 if __name__ == "__main__":

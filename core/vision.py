@@ -79,7 +79,7 @@ class VisionEngine:
             self.api_base = api_base or os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
         elif self.backend == "ollama":
             self.model = model or os.getenv("OLLAMA_VISION_MODEL", "llava")
-            self.ollama_host = ollama_host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            self.ollama_host = ollama_host or os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_URL") or "http://localhost:11434"
         elif self.backend == "groq":
             self.model = model or os.getenv("GROQ_VISION_MODEL", "llama-3.2-90b-vision-preview")
             self.api_key = api_key or os.getenv("GROQ_API_KEY", "")

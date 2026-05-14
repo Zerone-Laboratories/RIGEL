@@ -116,6 +116,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from core.rdb import DBConn
 from typing import Dict, List, Any, Optional, Union, Tuple
 from datetime import datetime
+from pathlib import Path
 
 # Import OSTools if available
 try:
@@ -127,6 +128,7 @@ except ImportError:
 
 syslog = SysLog(name="RigelEngine", level="DEBUG", log_file="rigel.log")
 hello_string = f"Zerone Laboratories Systems - RIGEL Engine v{VERSION}[Alpha]\n"
+RIGEL_STREAM_DIR = Path(os.getenv("RIGEL_STREAM_DIR", "/home/zerone/.rigel"))
 default_mcp = MultiServerMCPClient(
             {
                 "rigel tools": {
@@ -154,12 +156,29 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         self.tools_memory_store: Dict[str, List[Dict[str, str]]] = {}
         self.vectorstore = DBConn()
         print("VectorStore Preflight")
-        self.vectorstore.search_session_context(session_id='1234', query="preflight", n_results=4)
+        self.vectorstore.search_session_context(session_id='1234', query="preflight", n_results=10)
         self.server_params = StdioServerParameters(
             command="python",
             args=["/home/zerone/Projects/RIGEL_SERVICE/core/mcp/rigel_tools_server.py"],
         )
-        self.continuity = """
+        self.continuity_breakers = [
+            r"The task is done\.",
+            r"Please provide more information\.",
+            r"The task is impossible\.",
+            r"Let me know what you'd like to do next\.",
+            r"Let me know\.",
+            r"I'm unable to continue",
+            r"I can't proceed",
+            r"I cannot proceed",
+            r"Unable to continue",
+            r"No specific action to perform",
+            r"Could you specify what action you'd like me to take next\?",
+            r"Could you please provide more information on what exactly you want to do\?",
+            r"Would you like me to help you with anything else\?",
+            r"It seems we're stuck",
+            r"Let me know how you'd like to proceed!"
+        ]
+        self.continuity = f"""
                         Proceed. You CAN run code on my machine.
                         ALWAYS run  the command in the 'Working Directory' and remember the working directory
                         When providing tool outputs (like file listings, command results, etc.), always include the actual output in your response.
@@ -167,6 +186,8 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                         If you need some specific information (like username or password) say EXACTLY 'Please provide more information.'
                         If it's impossible, say 'The task is impossible.'
                         (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going.
+                        Strictly use following continuity breakers
+                        {', '.join(self.continuity_breakers)}
         """
 
         self.think_n_plan = """
@@ -174,13 +195,6 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         Say exactly 'Task is done'. If its impossible exactly say 'Task is impossible'.
         """
 
-        self.continuity_breakers = [
-            r"The task is done\.",
-            r"Please provide more information\.",
-            r"The task is impossible\.",
-            r"Let me know what you'd like to do next\.",
-            r"Let me know\."
-        ]
         self.continuity_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.continuity_breakers]
         # runtime memory adapter
         # self.memory = ConversationBufferMemory(memory_key="history", return_messages=True)
@@ -235,8 +249,28 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
 
 
+    def _escape_template_braces(self, messages: list) -> list:
+        """Escape curly braces in message content to prevent LangChain from interpreting them as template variables."""
+        escaped = []
+        for msg in messages:
+            if isinstance(msg, (tuple, list)) and len(msg) == 2:
+                role, content = msg
+                if isinstance(content, str):
+                    content = content.replace('{', '{{').replace('}', '}}')
+                escaped.append((role, content))
+            elif isinstance(msg, dict) and 'content' in msg:
+                content = msg['content']
+                if isinstance(content, str):
+                    content = content.replace('{', '{{').replace('}', '}}')
+                escaped.append({**msg, 'content': content})
+            elif hasattr(msg, 'content') and isinstance(msg.content, str):
+                escaped.append(msg)
+            else:
+                escaped.append(msg)
+        return escaped
+
     def inference(self, messages: list, model: str = None, RAG: bool = False):
-        self.messages = messages
+        self.messages = self._escape_template_braces(messages)
         """
         Input should be in following format:
         [
@@ -254,7 +288,72 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         syslog.debug(self.chain)
         response = self.chain.invoke({})
         syslog.info(response)
-        return AIMessage(content=response.content)
+        response_text = response.content if hasattr(response, "content") else str(response)
+        self._write_method_stream_file("inference", response_text)
+        return AIMessage(content=response_text)
+
+    def _prepare_method_stream_file(self, method_name: str) -> str:
+        stream_dir = RIGEL_STREAM_DIR
+        stream_dir.mkdir(parents=True, exist_ok=True)
+        for existing in stream_dir.glob(f"inference-{method_name}-*.stream"):
+            try:
+                existing.unlink()
+            except Exception as e:
+                syslog.warning(f"Failed to remove old stream file {existing}: {e}")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return str(stream_dir / f"inference-{method_name}-{timestamp}.stream")
+
+    def _write_method_stream_file(self, method_name: str, content: str) -> str:
+        stream_path = self._prepare_method_stream_file(method_name)
+        with open(stream_path, "w", encoding="utf-8") as stream_file:
+            stream_file.write(content or "")
+            stream_file.flush()
+        syslog.info(f"{method_name} output written to: {stream_path}")
+        return stream_path
+
+    def _chunk_to_text(self, chunk: Any) -> str:
+        if chunk is None:
+            return ""
+        if isinstance(chunk, str):
+            return chunk
+
+        content = getattr(chunk, "content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    value = item.get("text") or item.get("content")
+                    if isinstance(value, str):
+                        parts.append(value)
+            return "".join(parts)
+        return str(content) if content else ""
+
+    def inference_stream(self, messages: list, model: str = None, method_name: str = "inference", stream_path: str = None) -> AIMessage:
+        self.messages = self._escape_template_braces(messages)
+        if model and hasattr(self.llm, "model"):
+            self.llm.model = model
+
+        self.prompt = ChatPromptTemplate.from_messages(self.messages)
+        self.chain = self.prompt | self.llm
+        target_stream_path = stream_path or self._prepare_method_stream_file(method_name)
+
+        collected_tokens: List[str] = []
+        with open(target_stream_path, "w", encoding="utf-8") as stream_file:
+            for chunk in self.chain.stream({}):
+                token = self._chunk_to_text(chunk)
+                if not token:
+                    continue
+                collected_tokens.append(token)
+                stream_file.write(token)
+                stream_file.flush()
+
+        response_text = "".join(collected_tokens)
+        syslog.info(f"Streaming {method_name} complete. Stream written to: {target_stream_path}")
+        return AIMessage(content=response_text)
 
     async def __init_mcp(self):
         if not self._initialized:
@@ -287,6 +386,15 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         max_iterations = 10
         iteration_count = 0
         complete_output = []
+        previous_response_content = None
+        stream_path = self._prepare_method_stream_file("inference_with_tools")
+
+        def _finalize_tools_response(text: str) -> AIMessage:
+            with open(stream_path, "w", encoding="utf-8") as stream_file:
+                stream_file.write(text or "")
+                stream_file.flush()
+            syslog.info(f"inference_with_tools output written to: {stream_path}")
+            return AIMessage(content=text)
 
         try:
             while iteration_count < max_iterations:
@@ -323,7 +431,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                 if iteration_output:
                     complete_output.extend(iteration_output)
                 if hasattr(final_message, 'content') and final_message.content:
-                    response_content = final_message.content
+                    response_content = final_message.content.strip()
 
                     continuity_breaker_found = False
                     for pattern in self.continuity_patterns:
@@ -332,9 +440,16 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                             continuity_breaker_found = True
                             break
 
+                    if not continuity_breaker_found and previous_response_content and response_content == previous_response_content:
+                        syslog.info("Repeated response detected; terminating tool loop early.")
+                        full_response = "\n\n".join(complete_output)
+                        return _finalize_tools_response(f"{full_response}\n\nTask execution terminated due to repeated output.")
+
+                    previous_response_content = response_content
+
                     if continuity_breaker_found:
                         full_response = "\n\n".join(complete_output)
-                        return AIMessage(content=full_response)
+                        return _finalize_tools_response(full_response)
 
                     syslog.info(f"No continuity breaker detected. Current output: {response_content}")
                     syslog.info(f"Continuing with task execution (iteration {iteration_count})")
@@ -342,22 +457,22 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                     messages.append({"role": "user", "content": "Continue with the task."})
 
                 else:
-                    return AIMessage(content="\n\n".join(complete_output))
+                    return _finalize_tools_response("\n\n".join(complete_output))
 
             syslog.warning(f"Reached maximum iterations ({max_iterations}) without continuity breaker")
             if complete_output:
                 full_response = "\n\n".join(complete_output)
-                return AIMessage(content=f"{full_response}\n\nTask execution reached maximum iterations ({max_iterations}) without completion.")
+                return _finalize_tools_response(f"{full_response}\n\nTask execution reached maximum iterations ({max_iterations}) without completion.")
             else:
-                return AIMessage(content=f"Task execution reached maximum iterations ({max_iterations}) without completion.")
+                return _finalize_tools_response(f"Task execution reached maximum iterations ({max_iterations}) without completion.")
 
         except Exception as e:
             syslog.error(f"Error in inference_with_tools: {e}")
             if complete_output:
                 full_response = "\n\n".join(complete_output)
-                return AIMessage(content=f"{full_response}\n\nError occurred during tool-based inference: {str(e)}")
+                return _finalize_tools_response(f"{full_response}\n\nError occurred during tool-based inference: {str(e)}")
             else:
-                return AIMessage(content=f"Error occurred during tool-based inference: {str(e)}")
+                return _finalize_tools_response(f"Error occurred during tool-based inference: {str(e)}")
         finally:
             syslog.info("Cleaning Up MCP")
             await self.cleanup_mcp()
@@ -395,6 +510,11 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
         return response
 
+    def clear_tools_memory(self, thread_id: str = "default"):
+        if thread_id in self.tools_memory_store:
+            del self.tools_memory_store[thread_id]
+            syslog.info(f"Cleared tools memory for thread: {thread_id}")
+
     def inference_with_memory(self, messages: list, model: str = None, thread_id: str = "default", RAG: bool = True):
         """
         use this function as follows
@@ -414,6 +534,27 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         You are a summerization agent. you will receive data from a vectordb,
         you have to provide a summary of those previous interactions.
         """
+
+        if os.getenv("SUMMARIZE_CONVERSATIONS", "false").lower() == "true":
+            history = self.get_conversation_history(thread_id)
+            if len(history) >= 10:
+                syslog.info(f"Summarizing conversation history for thread {thread_id} and clearing memory.")
+                history_text = "\n".join([f"{getattr(msg, 'type', 'unknown')}: {getattr(msg, 'content', '')}" for msg in history])
+                
+                summarization_prompt = [
+                    ("system", summerization_agent_message),
+                    ("human", f"Here is the conversation history:\n\n{history_text}\n\nPlease provide a concise summary of this conversation to act as permenant memory context.")
+                ]
+                summary_response = self.inference(summarization_prompt)
+                
+                self.vectorstore.save_session_turn(
+                    session_id=thread_id,
+                    user_text="Conversation Summary",
+                    assistant_text=summary_response.content if hasattr(summary_response, "content") else str(summary_response),
+                    source="conversation-summary"
+                )
+                self.clear_memory(thread_id)
+
         # if RAG:
         #     data = self.ragdb.run_similar_search(next((msg for role, msg in messages if role == "human"), ""))
         #     syslog.info(f"RAG Data Retrieved: {data}")
@@ -422,7 +563,7 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         if RAG:
             syslog.info(f"RIGEL has previous session contexts")
             last_message = messages[-1][1]
-            data = self.vectorstore.search_session_context(session_id=thread_id, query=last_message, n_results=4)
+            data = self.vectorstore.search_session_context(session_id=thread_id, query=last_message, n_results=10)
             # Escape literal curly braces to prevent Langchain prompt formatting errors
             data = data.replace('{', '{{').replace('}', '}}')
 
@@ -476,9 +617,11 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             source="conversation-history"
         )
         print(f"\n\n\n\n\nSYSTEM_MESSAGE:{system_message}\n\n\n\n\n")
-        return AIMessage(content=last_message.content)
+        response_text = last_message.content if hasattr(last_message, "content") else str(last_message)
+        self._write_method_stream_file("inference_with_memory", response_text)
+        return AIMessage(content=response_text)
 
-    def _setup_workflow(self, system):
+    def _setup_workflow(self, system=""):
         def call_model(state: MessagesState):
             system_prompt = system
             messages = [SystemMessage(content=system_prompt)] + state["messages"]
@@ -689,10 +832,56 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
             
         return self.os_tools.get_detailed_system_info()
 
+    # ── Voice synthesis helpers ──────────────────────────────────────────
+
+    def list_voices(self):
+        """Return a list of available Piper voice model names."""
+        from core.synth_n_recog import Synthesizer
+        return Synthesizer.list_available_voices()
+
+    def set_voice(self, voice_name):
+        """Switch the active synthesis voice. Returns status dict."""
+        try:
+            from core.synth_n_recog import Synthesizer
+            # Validate the voice exists
+            available = Synthesizer.list_available_voices()
+            if voice_name not in available:
+                return {
+                    "status": "error",
+                    "message": f"Voice '{voice_name}' not found. Available: {', '.join(available)}",
+                }
+            self.current_voice = voice_name
+            return {"status": "ok", "voice": voice_name}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def clone_voice(self, mp3_path, voice_name, language="English (U.S.)", **kwargs):
+        """Start the voice cloning pipeline from an MP3 file. Returns status dict."""
+        try:
+            from core.synth_n_recog import clone_voice as _clone_voice
+            return _clone_voice(mp3_path, voice_name, language=language, **kwargs)
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def get_current_voice(self):
+        """Return the currently configured voice name."""
+        return getattr(self, "current_voice", os.getenv("VOICE", "knight"))
+
 class RigelOllama(Rigel): # RIGEL with ollama backend
     def __init__(self, model_name: str = "llama3.2",  mcp_endpoint = default_mcp):
         super().__init__(model_name=model_name, chatmode="ollama", mcp_endpoint=mcp_endpoint)
-        self.llm = ChatOllama(model=self.model)
+        self.ollama_host = os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_URL") or "http://localhost:11434"
+        self.llm = self._create_chat_ollama()
+
+    def _create_chat_ollama(self):
+        host = self.ollama_host
+        model = self.model
+        for host_arg in ("base_url", "host", "api_base", "url"):
+            try:
+                return ChatOllama(model=model, **{host_arg: host}, repeat_penalty=1.3, repeat_last_n=128)
+            except TypeError:
+                continue
+        return ChatOllama(model=model)
 
     def inference(self, messages: list, model: str = None):
         if model:
@@ -732,6 +921,14 @@ class RigelTransformers(Rigel): # RIGEL with transformers backend (local inferen
         # For example, you could use Hugging Face's transformers library to load a model
         # self.llm = YourLocalTransformersLLM(model_name=self.model)
         syslog.warning("Transformers backend is not implemented yet. This is a placeholder.")
+
+class RigelOllamaStream(RigelOllama): # RIGEL Ollama backend with token streaming to file
+    def inference(self, messages: list, model: str = None, stream_path: str = None):
+        return self.inference_stream(messages=messages, model=model, method_name="inference", stream_path=stream_path)
+
+class RigelGroqStream(RigelGroq): # RIGEL Groq backend with token streaming to file
+    def inference(self, messages: list, model: str = None, stream_path: str = None):
+        return self.inference_stream(messages=messages, model=model, method_name="inference", stream_path=stream_path)
   
 # class RigelAutoSwap(Rigel):
 #     def __init__(self, model_name: str = "llama-swap-model", base_url: str = "http://localhost:12432", temp: float = 0.7):

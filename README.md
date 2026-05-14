@@ -26,6 +26,8 @@
 - [Browser Automation Workflows](#browser-automation-workflows)
 - [Voice Features](#voice-features)
   - [Voice Synthesis (Text-to-Speech)](#voice-synthesis-text-to-speech)
+  - [Voice Model Selection](#voice-model-selection)
+  - [Voice Cloning](#voice-cloning)
   - [Voice Recognition (Speech-to-Text)](#voice-recognition-speech-to-text)
   - [Voice Requirements](#voice-requirements)
   - [D-Bus Voice Endpoints](#d-bus-voice-endpoints)
@@ -55,6 +57,7 @@
   - [Web API Usage Examples](#web-api-usage-examples)
 - [Environment Variables](#environment-variables)
 - [Logging](#logging)
+- [Testing](#testing)
 - [Contributing](#contributing)
 - [License](#license)
 - [Support](#support)
@@ -124,14 +127,14 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 | Thinking                                       | ✓         |
 | MCP                                            | ✓         |
 | Dbus Server                                    | ✓         |
-| RAG                                            | Partial   |
+| RAG                                            | ✓	     |
 | Memory                                         | ✓         |
 | Local Voice Recognition                        | ✓         |
+| Live Voice Recognition (whisper.cpp)            | ✓         |
 | Local Voice Synthesis                          | ✓         |
 | Visual Inference (Vision Models)               | ✓         |
 | Natural Language Routing                       | ✓         |
 | Image Analysis REST Endpoint                   | ✓         |
-| Multiple Request Handling                      | Un-Tested |
 
 ## Features
 
@@ -201,6 +204,10 @@ sudo apt-get install pulseaudio pulseaudio-utils
 
 # Install PulseAudio for audio playback (Fedora/RHEL)
 sudo dnf install pulseaudio pulseaudio-utils
+
+# Install SDL2 for live voice recognition with whisper-stream
+sudo apt-get install libsdl2-2.0-0   # Ubuntu/Debian
+sudo dnf install SDL2                 # Fedora/RHEL
 ```
 
 5. For Ollama backend, ensure Ollama is installed and running:
@@ -304,7 +311,11 @@ The web server will be available at:
 | `/query-think`             | POST   | Yes           | Advanced thinking capabilities     |
 | `/query-with-tools`        | POST   | Yes           | Inference with MCP tools support   |
 | `/synthesize-text`         | POST   | Yes           | Convert text to speech             |
+| `/list-voices`             | GET    | Yes           | List available voice models        |
+| `/set-voice`               | POST   | Yes           | Switch active voice model          |
+| `/clone-voice`             | POST   | Yes           | Start voice cloning from MP3 file  |
 | `/recognize-audio`         | POST   | Yes           | Transcribe audio file to text      |
+| `/live-voice-recognition` | WebSocket | Yes           | Live voice recognition via WebSocket |
 | `/license-info`            | GET    | No            | License and copyright information  |
 | `/admin/create-key`        | POST   | Admin         | Create new API key                 |
 | `/admin/usage/{tenant_id}` | GET    | Admin         | Get usage statistics               |
@@ -344,6 +355,11 @@ curl -X POST "http://localhost:8000/recognize-audio" \
      -H "X-API-Key: rigel_your_api_key_here" \
      -F "audio_file=@audio.wav" \
      -F "model=tiny"
+
+# Live voice recognition via WebSocket (JavaScript example in browser console or Node.js)
+# const ws = new WebSocket("ws://localhost:8000/live-voice-recognition?api_key=rigel_your_key");
+# ws.onmessage = (e) => console.log(JSON.parse(e.data));
+# ws.send(audioChunk);  // Send binary WAV audio frames
 
 # License information (no auth required)
 curl http://localhost:8000/license-info
@@ -422,7 +438,7 @@ response = service.QueryWithTools("Read the README.md file and summarize its con
 response = service.QueryWithTools("Check the system uptime and current user")
 
 # Voice synthesis and recognition
-response = service.SynthesizeText("Hello, this is RIGEL speaking!", "chunk")
+response = service.SynthesizeText("Hello, this is RIGEL speaking!", "chunk", "knight")
 transcription = service.RecognizeAudio("/path/to/audio.wav", "tiny")
 ```
 
@@ -527,10 +543,10 @@ bus = SessionBus()
 service = bus.get("com.rigel.RigelService")
 
 # Chunk mode for streaming (recommended for longer texts)
-result = service.SynthesizeText("Hello, this is RIGEL speaking. I can help you with various tasks.", "chunk")
+result = service.SynthesizeText("Hello, this is RIGEL speaking. I can help you with various tasks.", "chunk", "knight")
 
 # Linear mode for simple, quick synthesis
-result = service.SynthesizeText("Welcome to RIGEL!", "linear")
+result = service.SynthesizeText("Welcome to RIGEL!", "linear", "knight")
 ```
 
 #### Direct Python Usage
@@ -548,6 +564,109 @@ synthesizer.synthesize("Hello, this is RIGEL speaking!")
 synthesizer.mode = "linear"
 synthesizer.synthesize("Quick announcement!")
 ```
+
+### Voice Model Selection
+
+RIGEL supports multiple Piper TTS voice models. Available models are stored in `core/synthesis_assets/` as `.onnx` files. You can switch voices at runtime via environment variable, API, or DBus.
+
+#### Setting the Default Voice via Environment Variable
+
+```bash
+# In .env or environment
+VOICE=knight    # Options: knight, hal, jarvis-medium
+```
+
+#### Switching Voices via API
+
+```bash
+# List available voices
+curl -X GET "http://localhost:8000/list-voices" \
+     -H "X-API-Key: rigel_your_api_key_here"
+
+# Switch to a different voice
+curl -X POST "http://localhost:8000/set-voice" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
+     -d '{"voice": "hal"}'
+
+# Synthesize with a specific voice (overrides default)
+curl -X POST "http://localhost:8000/synthesize-text" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
+     -d '{"text": "Hello world", "mode": "chunk", "voice": "jarvis-medium"}'
+```
+
+#### Switching Voices via D-Bus
+
+```python
+from pydbus import SessionBus
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# List available voices
+print(service.ListVoices())
+
+# Switch voice
+service.SetVoice("hal")
+
+# Synthesize with a specific voice
+service.SynthesizeText("Hello world", "chunk", "jarvis-medium")
+```
+
+#### Direct Python Usage
+
+```python
+from core.synth_n_recog import Synthesizer
+
+# Initialize with a specific voice
+synth = Synthesizer(mode="chunk", voice="hal")
+
+# Switch voice at runtime
+synth.set_voice("jarvis-medium")
+
+# List all available voices
+voices = Synthesizer.list_available_voices()
+print(voices)  # ['hal', 'jarvis-medium', 'knight']
+```
+
+### Voice Cloning
+
+RIGEL includes an automated voice cloning pipeline that converts MP3 voice clips into a Piper-compatible training dataset. The pipeline:
+
+1. Converts MP3 to WAV segments (split on silence or into 15-second chunks)
+2. Transcribes each segment with Whisper
+3. Generates a Piper-compatible `metadata.csv` file
+4. Optionally preprocesses the dataset for Piper training
+
+The resulting dataset is placed in `core/synthesis_assets/VoiceCloning/dataset/{voice_name}/`. After the dataset is prepared, run the Piper training pipeline (see the `piper_multilingual_training_notebook.ipynb` notebook in the `VoiceCloning/` directory) to produce the `.onnx` model file. Place the resulting `.onnx` and `.json` files in `core/synthesis_assets/` to make the cloned voice available for selection.
+
+#### Cloning via API
+
+```bash
+curl -X POST "http://localhost:8000/clone-voice" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: rigel_your_api_key_here" \
+     -d '{"mp3_path": "/path/to/voice_sample.mp3", "voice_name": "myvoice", "language": "English (U.S.)"}'
+```
+
+#### Cloning via D-Bus
+
+```python
+service.CloneVoice("/path/to/voice_sample.mp3", "myvoice", "English (U.S.)")
+```
+
+#### Cloning via Python
+
+```python
+from core.synth_n_recog import clone_voice
+
+result = clone_voice("/path/to/voice_sample.mp3", "myvoice", language="English (U.S.)")
+print(result)
+# {"status": "started", "message": "...", "pid": 12345, ...}
+```
+
+> **Note:** Voice cloning runs asynchronously as a background subprocess. The `.onnx` model file is not produced automatically — the dataset preparation is the first step. Full model training requires the Piper training environment with GPU support.
 
 ### Voice Recognition (Speech-to-Text)
 
@@ -590,6 +709,91 @@ transcription = recognizer.transcribe("/path/to/audio.wav")
 print(f"Transcription: {transcription}")
 ```
 
+### Live Voice Recognition (whisper.cpp Streaming)
+
+RIGEL includes a live voice recognition mode powered by **whisper.cpp** (`whisper-stream` binary), enabling real-time audio capture and transcription with lower latency than the Python Whisper backend.
+
+#### Available Models (ggml format)
+
+Pre-bundled models in `core/whisper_live/models/`:
+- **tiny.en** (75 MB) - Fastest, English-only (default)
+- **base.en** (142 MB) - Balanced speed/accuracy, English-only
+- **small.en** (466 MB) - Better accuracy, English-only
+
+#### Using Live Voice Recognition (D-Bus)
+
+Live voice recognition streams transcription results via **DBus signals**. Call `LiveVoiceRecognition("start", ...)` to begin capture, then subscribe to `TranscriptionUpdate` signals to receive each line in real time.
+
+```python
+from pydbus import SessionBus
+import json
+from gi.repository import GLib
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# Subscribe to live transcription signals
+def on_transcription(text):
+    print(f"[LIVE] {text}")
+
+service.TranscriptionUpdate.connect(on_transcription)
+
+# Start live capture from default audio device
+result = service.LiveVoiceRecognition("start", json.dumps({
+    "model": "tiny.en",
+    "capture_device": -1,
+    "threads": 8,
+    "step": 500,
+    "length": 5000
+}))
+print(result)  # {"status": "started", "model": "tiny.en", ...}
+
+# ... transcription lines arrive via on_transcription callback ...
+
+# Check status
+status = service.LiveVoiceRecognition("status", "{}")
+
+# Stop capture
+result = service.LiveVoiceRecognition("stop", "{}")
+
+# Transcribe a file with whisper.cpp
+result = service.LiveVoiceRecognition("transcribe_file", json.dumps({
+    "model": "tiny.en",
+    "file_path": "/path/to/audio.wav"
+}))
+print(result)  # {"status": "completed", "transcription": "..."}
+```
+
+#### Using Live Voice Recognition (WebSocket)
+
+```javascript
+// Connect with API key
+const ws = new WebSocket("ws://localhost:8000/live-voice-recognition?api_key=rigel_your_key");
+
+// Receive server messages
+ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === "transcription" || msg.type === "done") {
+        console.log("Transcription:", msg.text);
+    }
+};
+
+// Send binary audio chunks (WAV format, 16kHz mono 16-bit)
+ws.send(audioChunk);  // Binary WebSocket frame
+
+// Request interim transcription
+ws.send(JSON.stringify({ command: "transcribe" }));
+
+// Update config
+ws.send(JSON.stringify({ command: "config", model: "tiny.en", threads: 8 }));
+
+// Reset audio buffer
+ws.send(JSON.stringify({ command: "reset" }));
+
+// Close connection to get final transcription
+ws.close();
+```
+
 ### Voice Requirements
 
 #### System Dependencies
@@ -602,6 +806,10 @@ print(f"Transcription: {transcription}")
 # Install PulseAudio for audio playback
 sudo apt-get install pulseaudio pulseaudio-utils  # Ubuntu/Debian
 sudo dnf install pulseaudio pulseaudio-utils      # Fedora/RHEL
+
+# Install SDL2 for live voice recognition (whisper-stream audio capture)
+sudo apt-get install libsdl2-2.0-0   # Ubuntu/Debian
+sudo dnf install SDL2                 # Fedora/RHEL
 ```
 
 #### Python Dependencies
@@ -613,19 +821,45 @@ Voice features require additional dependencies included in `requirements.txt`:
 
 #### Voice Models
 
-- **Piper Model**: `jarvis-medium.onnx` (included in `core/synthesis_assets/`)
-- **Whisper Models**: Downloaded automatically when first used
+- **Piper Models**: `.onnx` voice models stored in `core/synthesis_assets/`. Default: `knight.onnx`. Set `VOICE` env var to select a different model (e.g. `VOICE=hal`).
+- **Whisper Models (Python)**: Downloaded automatically when first used
+- **Whisper.cpp Models (ggml)**: Pre-bundled in `core/whisper_live/models/` for live recognition
 
 ### D-Bus Voice Endpoints
 
-#### `SynthesizeText(text: str, mode: str) -> str`
+#### `SynthesizeText(text: str, mode: str, voice: str) -> str`
 
-- **Description**: Converts text to speech with specified synthesis mode
+- **Description**: Converts text to speech with specified synthesis mode and optional voice override
 - **Parameters**:
   - `text` - The text to synthesize
   - `mode` - Synthesis mode: "chunk" or "linear"
-- **Returns**: Status message indicating synthesis started
+  - `voice` - (Optional) Voice model name to use (e.g. "knight", "hal"). Empty string uses default.
+- **Returns**: Status message indicating synthesis queued
 - **Use Case**: Voice output for AI responses, notifications, accessibility
+
+#### `ListVoices() -> str`
+
+- **Description**: Returns a JSON string with available voice model names and the currently active voice
+- **Returns**: JSON string: `{"voices": ["hal", "jarvis-medium", "knight"], "current": "knight"}`
+- **Use Case**: Discover available TTS voices, check current voice
+
+#### `SetVoice(voice_name: str) -> str`
+
+- **Description**: Switch the active voice synthesis model
+- **Parameters**:
+  - `voice_name` - Name of the voice model (e.g. "hal", "knight")
+- **Returns**: Status message confirming voice change
+- **Use Case**: Change TTS voice at runtime without restarting
+
+#### `CloneVoice(mp3_path: str, voice_name: str, language: str) -> str`
+
+- **Description**: Start the voice cloning pipeline from an MP3 file. Runs asynchronously — returns immediately with task status.
+- **Parameters**:
+  - `mp3_path` - Path to the source MP3 voice sample
+  - `voice_name` - Name for the cloned voice
+  - `language` - Language code (e.g. "English (U.S.)")
+- **Returns**: JSON string with status, PID, and output directory
+- **Use Case**: Create custom voice models from voice samples
 
 #### `RecognizeAudio(audio_file_path: str, model: str) -> str`
 
@@ -635,6 +869,87 @@ Voice features require additional dependencies included in `requirements.txt`:
   - `model` - Whisper model size: "tiny", "base", "small", "medium", "large"
 - **Returns**: Transcribed text from audio
 - **Use Case**: Voice input processing, audio transcription, accessibility
+
+#### `LiveVoiceRecognition(action: str, config_json: str) -> str`
+
+- **Description**: Start/stop/check live voice recognition using whisper.cpp streaming. Results are streamed via the **`TranscriptionUpdate`** signal — subscribe to `com.rigel.RigelService.TranscriptionUpdate` to receive live transcription lines.
+- **Parameters**:
+  - `action` - One of: `"start"`, `"stop"`, `"status"`, `"transcribe_file"`
+  - `config_json` - JSON string with config:
+    - For `start`: `{"model": "tiny.en", "capture_device": -1, "threads": 8, "step": 500, "length": 5000}`
+    - For `transcribe_file`: `{"model": "tiny.en", "file_path": "/path/to/audio.wav"}`
+- **Returns**: JSON string with status/results (start/stop return immediately; transcription lines arrive via signal)
+- **Signal**: `TranscriptionUpdate(s: text)` — emitted for each transcription line from whisper-stream
+- **Use Case**: Real-time voice transcription from microphone, low-latency audio processing
+
+### Subscribing to Live Transcription via DBus Signals
+
+Live voice recognition streams results through DBus signals. Once `LiveVoiceRecognition("start", ...)` is called, each transcribed line is emitted as a `TranscriptionUpdate` signal. Clients subscribe to this signal to receive transcription in real time.
+
+#### Python Client Example
+
+```python
+from pydbus import SessionBus
+from gi.repository import GLib
+import json
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# Track accumulated transcription
+transcription_lines = []
+
+def on_transcription(text):
+    """Called in real time for each transcribed line."""
+    transcription_lines.append(text)
+    print(f"\r> {text}", flush=True)
+
+# Subscribe to the signal BEFORE starting capture
+service.TranscriptionUpdate.connect(on_transcription)
+print("Subscribed to TranscriptionUpdate signal")
+
+# Start live capture
+result = service.LiveVoiceRecognition("start", json.dumps({
+    "model": "tiny.en",
+    "capture_device": -1,
+    "threads": 8,
+    "step": 500,
+    "length": 5000
+}))
+print(f"Capture started: {result}")
+
+# Keep the event loop running to receive signals
+try:
+    loop = GLib.MainLoop()
+    loop.run()
+except KeyboardInterrupt:
+    # Stop capture on Ctrl+C
+    service.LiveVoiceRecognition("stop", "{}")
+    print("\n\nFull transcription:")
+    print(" ".join(transcription_lines))
+```
+
+#### Shell / CLI Test
+
+```bash
+# Monitor live transcription from the command line
+dbus-monitor --session "interface='com.rigel.RigelService',member='TranscriptionUpdate'"
+
+# In another terminal, start capture:
+dbus-send --session --print-reply \
+  --dest=com.rigel.RigelService \
+  /com/rigel/RigelService \
+  com.rigel.RigelService.LiveVoiceRecognition \
+  string:"start" string:'{"model":"tiny.en"}'
+```
+
+#### Signal Reference
+
+| Signal                   | Argument | Description                          |
+| ------------------------ | -------- | ------------------------------------ |
+| `TranscriptionUpdate`    | `s` text | A transcribed line from live capture |
+
+The signal is emitted on the `com.rigel.RigelService` interface. Connect your handler **before** calling `start` to avoid missing early transcription lines.
 
 ### Basic Usage with Ollama
 
@@ -818,11 +1133,23 @@ RIGEL_SERVICE/
 │   ├── logger.py         # Logging utilities
 │   ├── rdb.py            # RAG database functionality
 │   ├── synth_n_recog.py  # Voice synthesis and recognition
+│   ├── whisper_live/     # whisper.cpp binaries and models for live voice recog
+│   │   ├── whisper-stream  # Real-time audio capture and transcription
+│   │   ├── whisper-cli     # Command-line transcription
+│   │   ├── lib/            # Shared libraries (libwhisper, libggml, etc.)
+│   │   └── models/         # ggml format models (tiny.en, base.en, small.en)
 │   ├── mcp/              # MCP (Model Context Protocol) tools
 │   │   └── rigel_tools_server.py  # MCP server implementation
 │   ├── synthesis_assets/ # Voice synthesis models
-│   │   ├── jarvis-medium.onnx     # Piper TTS model
-│   │   └── jarvis-medium.onnx.json # Model configuration
+│   │   ├── knight.onnx             # Piper TTS model (default)
+│   │   ├── knight.onnx.json        # Model configuration
+│   │   ├── hal.onnx                # Piper TTS model
+│   │   ├── hal.onnx.json           # Model configuration
+│   │   ├── jarvis-medium.onnx      # Piper TTS model
+│   │   ├── jarvis-medium.onnx.json # Model configuration
+│   │   └── VoiceCloning/           # Voice cloning pipeline
+│   │       ├── piper_mp3_dataset.py            # MP3 → dataset automation
+│   │       └── piper_multilingual_training_notebook.ipynb  # Training notebook
 │   └── *.log             # Log files
 ├── server.py             # D-Bus server implementation
 ├── demo_client.py        # Example D-Bus client with voice features
@@ -1410,8 +1737,12 @@ The web server provides the same functionality as the D-Bus server through HTTP 
 | `/query-with-tools`            | POST   | Inference with MCP tools support            | `{"query": "string", "system_prompt": "string?"}` |
 | `/rigel-natural-language`      | POST   | Memory-first natural language tool routing  | `{"query": "string", "id": "string"}` |
 | `/analyze-image`               | POST   | Vision-based image analysis                 | `{"image_path": "string", "prompt": "string"}` |
-| `/synthesize-text`             | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear"}` |
+| `/synthesize-text`             | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear", "voice": "knight?"}` |
+| `/list-voices`                 | GET    | List available voice models                 | None                                         |
+| `/set-voice`                   | POST   | Switch active voice model                   | `{"voice": "hal"}`                           |
+| `/clone-voice`                 | POST   | Start voice cloning from MP3 file           | `{"mp3_path": "string", "voice_name": "string", "language": "string?"}` |
 | `/recognize-audio`             | POST   | Transcribe audio file to text               | Multipart form with `audio_file` and `model` |
+| `/live-voice-recognition`     | WebSocket | Live voice recognition audio stream         | Binary audio frames + JSON control messages   |
 | `/license-info`                | GET    | License and copyright information           | None                                         |
 | `/admin/switch-inference-engine` | POST | Switch between GROQ and OLLAMA backends     | `{"engine": "groq" or "ollama"}`             |
 | `/admin/current-inference-engine` | GET | Get current inference engine                | None                                         |
@@ -1562,10 +1893,23 @@ curl -X POST "http://localhost:8000/analyze-image" \
      -H "Content-Type: application/json" \
      -d '{"image_path": "/tmp/screenshot.png", "prompt": "Describe the main objects and any visible text in this image."}'
 
-# Text synthesis
+# Text synthesis (with optional voice selection)
 curl -X POST "http://localhost:8000/synthesize-text" \
      -H "Content-Type: application/json" \
-     -d '{"text": "Hello, this is RIGEL speaking! I am now available via web API.", "mode": "chunk"}'
+     -d '{"text": "Hello, this is RIGEL speaking! I am now available via web API.", "mode": "chunk", "voice": "knight"}'
+
+# List available voices
+curl -X GET "http://localhost:8000/list-voices"
+
+# Set active voice
+curl -X POST "http://localhost:8000/set-voice" \
+     -H "Content-Type: application/json" \
+     -d '{"voice": "hal"}'
+
+# Clone a voice from an MP3 sample
+curl -X POST "http://localhost:8000/clone-voice" \
+     -H "Content-Type: application/json" \
+     -d '{"mp3_path": "/path/to/voice_sample.mp3", "voice_name": "myvoice", "language": "English (U.S.)"}'
 
 # Audio recognition
 curl -X POST "http://localhost:8000/recognize-audio" \
@@ -1639,13 +1983,41 @@ response = requests.post(
 )
 print(response.json())
 
-# Text synthesis
+# List available voices
+response = requests.get(
+    f"{base_url}/list-voices",
+    headers=headers,
+)
+print(response.json())
+
+# Set active voice
+response = requests.post(
+    f"{base_url}/set-voice",
+    headers=headers,
+    json={"voice": "hal"}
+)
+print(response.json())
+
+# Text synthesis (with optional voice override)
 response = requests.post(
     f"{base_url}/synthesize-text",
     headers=headers,
     json={
         "text": "This is a test of the voice synthesis system",
-        "mode": "chunk"
+        "mode": "chunk",
+        "voice": "knight"
+    }
+)
+print(response.json())
+
+# Clone a voice from an MP3 sample
+response = requests.post(
+    f"{base_url}/clone-voice",
+    headers=headers,
+    json={
+        "mp3_path": "/path/to/voice_sample.mp3",
+        "voice_name": "myvoice",
+        "language": "English (U.S.)"
     }
 )
 print(response.json())
@@ -1817,6 +2189,9 @@ print(response.json())
 - `GROQ_API_KEY`: Required for Groq backend usage
 - `INFERENCE_ENGINE`: Set to "groq" or "ollama" to specify the default inference engine
 - `RIGEL_ADMIN_KEY`: Admin key for accessing administrative endpoints
+- `RIGEL_SYSTEM_PROMPT`: Override the default assistant system prompt from `.env` or the environment. Use `\n` for line breaks when defining a multi-line prompt.
+- `VOICE`: Default Piper TTS voice model name (default: `knight`). Available models are stored in `core/synthesis_assets/` as `.onnx` files.
+- `VOICE_RECOGNITION_MODEL`: Whisper model for speech recognition (default: `tiny`). Options: `tiny`, `base`, `small`, `medium`, `large`.
 
 ## Logging
 
@@ -1826,6 +2201,57 @@ RIGEL includes comprehensive logging capabilities. Logs are written to:
 - `core/syslog.log` - System logs
 
 Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+## Testing
+
+RIGEL includes a comprehensive test suite under the `tests/` directory. Tests are written with [pytest](https://docs.pytest.org/) and cover both unit and integration scenarios.
+
+### Running Tests
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run a specific test file
+python -m pytest tests/test_rigel_core.py -v
+
+# Run with coverage (requires pytest-cov)
+pip install pytest-cov
+python -m pytest tests/ -v --cov=. --cov-report=term-missing
+```
+
+### Test Structure
+
+| File | Type | Description |
+|------|------|-------------|
+| `test_version.py` | Unit | Version format validation |
+| `test_logger.py` | Unit | `ColoredFormatter` level colors, `SysLog` creation and logging methods |
+| `test_os_tools.py` | Unit | `OSTools` command execution, temporary programs, system info, uptime formatting, cleanup |
+| `test_synth_preprocess.py` | Unit | TTS `preprocess_for_synthesis` pipeline, `_split_text_into_chunks` sentence-aware chunking, `Recognizer._extract_confidence` |
+| `test_rigel_core.py` | Unit | Core agent logic — see breakdown below |
+| `test_web_server_db.py` | Integration | SQLite API key management, tenant CRUD, rate limiting, usage tracking |
+| `test_user_tools.py` | Integration | User-defined tools CRUD, RAG data management, tenant isolation |
+
+### Agent / Memory / Tools Coverage (`test_rigel_core.py`)
+
+| Test Class | Tests | Covers |
+|-----------|-------|--------|
+| `TestContinuityBreakers` | 10 | All 10 continuity-breaker regex patterns (task done, impossible, stuck, etc.), case-insensitivity, false-positive prevention |
+| `TestEscapeTemplateBraces` | 5 | `_escape_template_braces` — tuples, dicts, already-escaped, passthrough |
+| `TestChunkToText` | 6 | `_chunk_to_text` — None, strings, content objects, list-of-strings, list-of-dicts |
+| `TestToolsMemoryStore` | 7 | `_build_tools_memory_context` (populated / empty / max_turns), `clear_tools_memory`, turn accumulation and 20-turn trimming |
+| `TestStreamFileManagement` | 2 | `_prepare_method_stream_file` path creation, write-and-readback |
+| `TestSanitizeNaturalLanguageOutput` | 6 | Think-tag removal, `CALL_TOOL_AGENT` prefix stripping (all variants), whitespace collapse, markdown char removal |
+| `TestNormalizeHomePaths` | 3 | `~` expansion, absolute path preservation, tilde-in-word no-op |
+| `TestExtractToolAgentTask` | 5 | Extraction from `CALL_TOOL_AGENT: <task>`, path normalization, variant formats (`_TOOL_`, `-TOOL-`, ` TOOL `) |
+| `TestResolveToolTask` | 2 | `_resolve_tool_task` extraction path + no-LLM fallback |
+| `TestLooksLikeCapabilityRefusal` | 7 | All 5 refusal patterns (no-access, cannot-access, no-real-time-data, unable-to), normal passthrough |
+| `TestCallToolAgentDetection` | 5 | D-Bus style bracketed `[CALL_TOOL_AGENT: ...]` detection, variants, bracket requirement |
+| `TestRigelWorkflow` | 4 | `_setup_workflow` app/memory creation, `get_conversation_history` empty state, `clear_memory` / `clear_tools_memory` |
+
+### Tests Don't Need Running Servers
+
+Unit tests are self-contained — they don't require a running LLM, ChromaDB, D-Bus daemon, or API server. Integration tests use temporary SQLite databases and never touch real data. Heavy dependencies (LangChain, FastAPI, Whisper, etc.) are mocked out with `unittest.mock`.
 
 ## Contributing
 
@@ -1862,7 +2288,7 @@ For support, please open an issue in the GitHub repository or contact Zerone Lab
 
 ## Keywords & Topics
 
-**AI Assistant** • **Virtual Assistant** • **Multi-LLM** • **Agentic AI** • **Ollama** • **Groq** • **Python AI Framework** • **Open Source AI** • **Local AI** • **Cloud AI** • **D-Bus** • **MCP Tools** • **AI Inference Engine** • **Chatbot Framework** • **LLM Backend** • **AI Memory** • **RAG** • **LLAMA** • **Transformers** • **Voice Recognition** • **Speech Synthesis** • **TTS** • **STT** • **Whisper** • **Piper** • **AI Development** • **Machine Learning** • **Natural Language Processing** • **Conversational AI** • **AI Tools** • **System Integration**
+**AI Assistant** • **Virtual Assistant** • **Multi-LLM** • **Agentic AI** • **Ollama** • **Groq** • **Python AI Framework** • **Open Source AI** • **Local AI** • **Cloud AI** • **D-Bus** • **MCP Tools** • **AI Inference Engine** • **Chatbot Framework** • **LLM Backend** • **AI Memory** • **RAG** • **LLAMA** • **Transformers** • **Voice Recognition** • **Speech Synthesis** • **Voice Cloning** • **TTS** • **STT** • **Whisper** • **Piper** • **AI Development** • **Machine Learning** • **Natural Language Processing** • **Conversational AI** • **AI Tools** • **System Integration**
 
 ---
 
@@ -1912,6 +2338,12 @@ Set admin key via environment variable:
 ```bash
 export RIGEL_ADMIN_KEY="your_secure_admin_key"
 ```
+
+If `RIGEL_ADMIN_KEY` is not set, the web server auto-generates an admin key and persists it to `.xadminkey` in the project directory (so it stays stable across restarts).
+
+For a simple manual testing UI, open:
+
+- `http://localhost:8000/ui/`
 
 Admin endpoints:
 

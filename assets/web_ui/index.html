@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>RIGEL Web API Test UI</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; margin: 16px; line-height: 1.35; }
+    h1 { margin: 0 0 8px; font-size: 18px; }
+    .muted { opacity: 0.8; font-size: 13px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    label { display: grid; gap: 6px; min-width: 280px; flex: 1; }
+    input, select, textarea, button { font: inherit; }
+    input, select, textarea { padding: 8px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: transparent; }
+    textarea { min-height: 160px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.35); background: rgba(127,127,127,0.10); cursor: pointer; }
+    button:hover { background: rgba(127,127,127,0.16); }
+    pre { padding: 12px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.35); overflow: auto; max-height: 55vh; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <h1>RIGEL Web API Test UI</h1>
+  <div class="muted">
+    Tip: set <code>RIGEL_API_BASE_URL</code> in <code>.env.local</code> (if your client uses one) and provide an API key if your server requires it.<br />
+    Admin key is generated on the server and persisted to <code>.xadminkey</code> (unless you set <code>RIGEL_ADMIN_KEY</code>).
+  </div>
+
+  <div class="row">
+    <label>
+      Base URL
+      <input id="baseUrl" placeholder="http://localhost:8000" />
+    </label>
+    <label>
+      X-API-Key (required for most endpoints)
+      <input id="apiKey" placeholder="rigel_..." autocomplete="off" />
+    </label>
+    <label>
+      X-Admin-Key (required for /admin/*)
+      <input id="adminKey" placeholder="rigel_admin_..." autocomplete="off" />
+    </label>
+  </div>
+
+  <div class="row">
+    <label>
+      New tenant name (for API key generation)
+      <input id="tenantName" placeholder="Test Tenant" />
+    </label>
+    <label>
+      Plan
+      <select id="tenantPlan">
+        <option value="free">free</option>
+        <option value="pro">pro</option>
+        <option value="enterprise">enterprise</option>
+      </select>
+    </label>
+    <label style="min-width: 200px; flex: 0 0 200px; align-self: end;">
+      &nbsp;
+      <button id="generateKey">Generate API key</button>
+    </label>
+  </div>
+
+  <div class="row">
+    <label style="min-width: 160px; flex: 0 0 160px;">
+      Method
+      <select id="method">
+        <option>GET</option>
+        <option>POST</option>
+      </select>
+    </label>
+    <label style="min-width: 420px;">
+      Path
+      <input id="path" placeholder="/query" />
+    </label>
+  </div>
+
+  <div class="row">
+    <label style="min-width: 520px;">
+      JSON Body (for POST)
+      <textarea id="body" spellcheck="false" placeholder='{"query": "Hello RIGEL!"}'></textarea>
+    </label>
+  </div>
+
+  <div class="actions">
+    <button id="send">Send</button>
+    <button data-preset="root">GET /</button>
+    <button data-preset="license">GET /license-info</button>
+    <button data-preset="query">POST /query</button>
+    <button data-preset="createKey">POST /admin/create-key</button>
+    <button data-preset="listTenants">GET /admin/list-tenants</button>
+  </div>
+
+  <h2 style="margin-top: 16px; font-size: 15px;">Response</h2>
+  <div class="muted" id="meta"></div>
+  <pre><code id="out">(no requests yet)</code></pre>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function joinUrl(baseUrl, path) {
+    const base = baseUrl.replace(/\/+$/, '');
+    const p = path.startsWith('/') ? path : `/${path}`;
+    return `${base}${p}`;
+  }
+
+  function pretty(contentType, text) {
+    if ((contentType || '').includes('application/json')) {
+      try { return JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+    }
+    // Also try JSON even if server forgot content-type
+    try { return JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+    return text;
+  }
+
+  function setPreset(preset) {
+    switch (preset) {
+      case 'root':
+        $('method').value = 'GET';
+        $('path').value = '/';
+        $('body').value = '';
+        break;
+      case 'license':
+        $('method').value = 'GET';
+        $('path').value = '/license-info';
+        $('body').value = '';
+        break;
+      case 'query':
+        $('method').value = 'POST';
+        $('path').value = '/query';
+        $('body').value = JSON.stringify({ query: 'Hello RIGEL!' }, null, 2);
+        break;
+      case 'createKey':
+        $('method').value = 'POST';
+        $('path').value = '/admin/create-key';
+        $('body').value = JSON.stringify({ name: 'Test Tenant', plan: 'free' }, null, 2);
+        break;
+      case 'listTenants':
+        $('method').value = 'GET';
+        $('path').value = '/admin/list-tenants';
+        $('body').value = '';
+        break;
+    }
+  }
+
+  async function send() {
+    const baseUrl = ($('baseUrl').value || '').trim();
+    const apiKey = ($('apiKey').value || '').trim();
+    const adminKey = ($('adminKey').value || '').trim();
+    const method = $('method').value;
+    const path = ($('path').value || '').trim() || '/';
+    const bodyText = $('body').value || '';
+
+    const url = joinUrl(baseUrl, path);
+
+    const headers = {};
+    if (apiKey) headers['X-API-Key'] = apiKey;
+    if (adminKey) headers['X-Admin-Key'] = adminKey;
+
+    let body;
+    if (method === 'POST') {
+      const trimmed = bodyText.trim();
+      if (trimmed) {
+        headers['Content-Type'] = 'application/json';
+        body = trimmed;
+      }
+    }
+
+    $('meta').textContent = `→ ${method} ${url}`;
+    $('out').textContent = 'Loading...';
+
+    const started = performance.now();
+    try {
+      const res = await fetch(url, { method, headers, body });
+      const elapsed = Math.round(performance.now() - started);
+      const ct = res.headers.get('content-type') || '';
+      const text = await res.text();
+
+      $('meta').textContent = `← ${res.status} ${res.statusText} (${elapsed}ms) | content-type: ${ct || 'n/a'}`;
+      $('out').textContent = pretty(ct, text);
+    } catch (err) {
+      $('meta').textContent = 'Request failed';
+      $('out').textContent = String(err);
+    }
+  }
+
+  async function generateApiKey() {
+    const baseUrl = ($('baseUrl').value || '').trim();
+    const adminKey = ($('adminKey').value || '').trim();
+    const name = ($('tenantName').value || '').trim() || 'Test Tenant';
+    const plan = ($('tenantPlan').value || 'free').trim();
+
+    if (!adminKey) {
+      $('meta').textContent = 'Missing X-Admin-Key';
+      $('out').textContent = 'Provide X-Admin-Key to call /admin/create-key.';
+      return;
+    }
+
+    const url = joinUrl(baseUrl, '/admin/create-key');
+    const headers = {
+      'X-Admin-Key': adminKey,
+      'Content-Type': 'application/json',
+    };
+    const body = JSON.stringify({ name, plan });
+
+    $('meta').textContent = `→ POST ${url}`;
+    $('out').textContent = 'Loading...';
+
+    const started = performance.now();
+    try {
+      const res = await fetch(url, { method: 'POST', headers, body });
+      const elapsed = Math.round(performance.now() - started);
+      const ct = res.headers.get('content-type') || '';
+      const text = await res.text();
+
+      $('meta').textContent = `← ${res.status} ${res.statusText} (${elapsed}ms) | content-type: ${ct || 'n/a'}`;
+      const formatted = pretty(ct, text);
+      $('out').textContent = formatted;
+
+      if (res.ok) {
+        try {
+          const data = JSON.parse(text);
+          if (data && data.api_key) {
+            $('apiKey').value = data.api_key;
+            // Also set the request builder to something immediately usable
+            setPreset('query');
+          }
+        } catch (_) {
+          // ignore parse errors
+        }
+      }
+    } catch (err) {
+      $('meta').textContent = 'Request failed';
+      $('out').textContent = String(err);
+    }
+  }
+
+  async function tryAutoLoadAdminKey() {
+    try {
+      const baseUrl = ($('baseUrl').value || '').trim();
+      const url = joinUrl(baseUrl, '/ui-admin-key');
+      const res = await fetch(url, { method: 'GET' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.admin_key && !$('adminKey').value) {
+        $('adminKey').value = data.admin_key;
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Init defaults
+  $('baseUrl').value = window.location.origin;
+  $('tenantName').value = 'Test Tenant';
+  setPreset('query');
+  tryAutoLoadAdminKey();
+
+  $('send').addEventListener('click', send);
+  $('generateKey').addEventListener('click', generateApiKey);
+  document.querySelectorAll('button[data-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => setPreset(btn.getAttribute('data-preset')));
+  });
+</script>
+</body>
+</html>
