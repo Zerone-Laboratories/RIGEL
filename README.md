@@ -55,6 +55,7 @@
   - [Web API Usage Examples](#web-api-usage-examples)
 - [Environment Variables](#environment-variables)
 - [Logging](#logging)
+- [Testing](#testing)
 - [Contributing](#contributing)
 - [License](#license)
 - [Support](#support)
@@ -124,14 +125,14 @@ Aims to act as a central AI server for multiple agentic-based clients and AI-pow
 | Thinking                                       | ✓         |
 | MCP                                            | ✓         |
 | Dbus Server                                    | ✓         |
-| RAG                                            | Partial   |
+| RAG                                            | ✓	     |
 | Memory                                         | ✓         |
 | Local Voice Recognition                        | ✓         |
+| Live Voice Recognition (whisper.cpp)            | ✓         |
 | Local Voice Synthesis                          | ✓         |
 | Visual Inference (Vision Models)               | ✓         |
 | Natural Language Routing                       | ✓         |
 | Image Analysis REST Endpoint                   | ✓         |
-| Multiple Request Handling                      | Un-Tested |
 
 ## Features
 
@@ -201,6 +202,10 @@ sudo apt-get install pulseaudio pulseaudio-utils
 
 # Install PulseAudio for audio playback (Fedora/RHEL)
 sudo dnf install pulseaudio pulseaudio-utils
+
+# Install SDL2 for live voice recognition with whisper-stream
+sudo apt-get install libsdl2-2.0-0   # Ubuntu/Debian
+sudo dnf install SDL2                 # Fedora/RHEL
 ```
 
 5. For Ollama backend, ensure Ollama is installed and running:
@@ -305,6 +310,7 @@ The web server will be available at:
 | `/query-with-tools`        | POST   | Yes           | Inference with MCP tools support   |
 | `/synthesize-text`         | POST   | Yes           | Convert text to speech             |
 | `/recognize-audio`         | POST   | Yes           | Transcribe audio file to text      |
+| `/live-voice-recognition` | WebSocket | Yes           | Live voice recognition via WebSocket |
 | `/license-info`            | GET    | No            | License and copyright information  |
 | `/admin/create-key`        | POST   | Admin         | Create new API key                 |
 | `/admin/usage/{tenant_id}` | GET    | Admin         | Get usage statistics               |
@@ -344,6 +350,11 @@ curl -X POST "http://localhost:8000/recognize-audio" \
      -H "X-API-Key: rigel_your_api_key_here" \
      -F "audio_file=@audio.wav" \
      -F "model=tiny"
+
+# Live voice recognition via WebSocket (JavaScript example in browser console or Node.js)
+# const ws = new WebSocket("ws://localhost:8000/live-voice-recognition?api_key=rigel_your_key");
+# ws.onmessage = (e) => console.log(JSON.parse(e.data));
+# ws.send(audioChunk);  // Send binary WAV audio frames
 
 # License information (no auth required)
 curl http://localhost:8000/license-info
@@ -590,6 +601,91 @@ transcription = recognizer.transcribe("/path/to/audio.wav")
 print(f"Transcription: {transcription}")
 ```
 
+### Live Voice Recognition (whisper.cpp Streaming)
+
+RIGEL includes a live voice recognition mode powered by **whisper.cpp** (`whisper-stream` binary), enabling real-time audio capture and transcription with lower latency than the Python Whisper backend.
+
+#### Available Models (ggml format)
+
+Pre-bundled models in `core/whisper_live/models/`:
+- **tiny.en** (75 MB) - Fastest, English-only (default)
+- **base.en** (142 MB) - Balanced speed/accuracy, English-only
+- **small.en** (466 MB) - Better accuracy, English-only
+
+#### Using Live Voice Recognition (D-Bus)
+
+Live voice recognition streams transcription results via **DBus signals**. Call `LiveVoiceRecognition("start", ...)` to begin capture, then subscribe to `TranscriptionUpdate` signals to receive each line in real time.
+
+```python
+from pydbus import SessionBus
+import json
+from gi.repository import GLib
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# Subscribe to live transcription signals
+def on_transcription(text):
+    print(f"[LIVE] {text}")
+
+service.TranscriptionUpdate.connect(on_transcription)
+
+# Start live capture from default audio device
+result = service.LiveVoiceRecognition("start", json.dumps({
+    "model": "tiny.en",
+    "capture_device": -1,
+    "threads": 8,
+    "step": 500,
+    "length": 5000
+}))
+print(result)  # {"status": "started", "model": "tiny.en", ...}
+
+# ... transcription lines arrive via on_transcription callback ...
+
+# Check status
+status = service.LiveVoiceRecognition("status", "{}")
+
+# Stop capture
+result = service.LiveVoiceRecognition("stop", "{}")
+
+# Transcribe a file with whisper.cpp
+result = service.LiveVoiceRecognition("transcribe_file", json.dumps({
+    "model": "tiny.en",
+    "file_path": "/path/to/audio.wav"
+}))
+print(result)  # {"status": "completed", "transcription": "..."}
+```
+
+#### Using Live Voice Recognition (WebSocket)
+
+```javascript
+// Connect with API key
+const ws = new WebSocket("ws://localhost:8000/live-voice-recognition?api_key=rigel_your_key");
+
+// Receive server messages
+ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === "transcription" || msg.type === "done") {
+        console.log("Transcription:", msg.text);
+    }
+};
+
+// Send binary audio chunks (WAV format, 16kHz mono 16-bit)
+ws.send(audioChunk);  // Binary WebSocket frame
+
+// Request interim transcription
+ws.send(JSON.stringify({ command: "transcribe" }));
+
+// Update config
+ws.send(JSON.stringify({ command: "config", model: "tiny.en", threads: 8 }));
+
+// Reset audio buffer
+ws.send(JSON.stringify({ command: "reset" }));
+
+// Close connection to get final transcription
+ws.close();
+```
+
 ### Voice Requirements
 
 #### System Dependencies
@@ -602,6 +698,10 @@ print(f"Transcription: {transcription}")
 # Install PulseAudio for audio playback
 sudo apt-get install pulseaudio pulseaudio-utils  # Ubuntu/Debian
 sudo dnf install pulseaudio pulseaudio-utils      # Fedora/RHEL
+
+# Install SDL2 for live voice recognition (whisper-stream audio capture)
+sudo apt-get install libsdl2-2.0-0   # Ubuntu/Debian
+sudo dnf install SDL2                 # Fedora/RHEL
 ```
 
 #### Python Dependencies
@@ -613,8 +713,9 @@ Voice features require additional dependencies included in `requirements.txt`:
 
 #### Voice Models
 
-- **Piper Model**: `jarvis-medium.onnx` (included in `core/synthesis_assets/`)
-- **Whisper Models**: Downloaded automatically when first used
+- **Piper Model**: `knight.onnx` (included in `core/synthesis_assets/`)
+- **Whisper Models (Python)**: Downloaded automatically when first used
+- **Whisper.cpp Models (ggml)**: Pre-bundled in `core/whisper_live/models/` for live recognition
 
 ### D-Bus Voice Endpoints
 
@@ -635,6 +736,87 @@ Voice features require additional dependencies included in `requirements.txt`:
   - `model` - Whisper model size: "tiny", "base", "small", "medium", "large"
 - **Returns**: Transcribed text from audio
 - **Use Case**: Voice input processing, audio transcription, accessibility
+
+#### `LiveVoiceRecognition(action: str, config_json: str) -> str`
+
+- **Description**: Start/stop/check live voice recognition using whisper.cpp streaming. Results are streamed via the **`TranscriptionUpdate`** signal — subscribe to `com.rigel.RigelService.TranscriptionUpdate` to receive live transcription lines.
+- **Parameters**:
+  - `action` - One of: `"start"`, `"stop"`, `"status"`, `"transcribe_file"`
+  - `config_json` - JSON string with config:
+    - For `start`: `{"model": "tiny.en", "capture_device": -1, "threads": 8, "step": 500, "length": 5000}`
+    - For `transcribe_file`: `{"model": "tiny.en", "file_path": "/path/to/audio.wav"}`
+- **Returns**: JSON string with status/results (start/stop return immediately; transcription lines arrive via signal)
+- **Signal**: `TranscriptionUpdate(s: text)` — emitted for each transcription line from whisper-stream
+- **Use Case**: Real-time voice transcription from microphone, low-latency audio processing
+
+### Subscribing to Live Transcription via DBus Signals
+
+Live voice recognition streams results through DBus signals. Once `LiveVoiceRecognition("start", ...)` is called, each transcribed line is emitted as a `TranscriptionUpdate` signal. Clients subscribe to this signal to receive transcription in real time.
+
+#### Python Client Example
+
+```python
+from pydbus import SessionBus
+from gi.repository import GLib
+import json
+
+bus = SessionBus()
+service = bus.get("com.rigel.RigelService")
+
+# Track accumulated transcription
+transcription_lines = []
+
+def on_transcription(text):
+    """Called in real time for each transcribed line."""
+    transcription_lines.append(text)
+    print(f"\r> {text}", flush=True)
+
+# Subscribe to the signal BEFORE starting capture
+service.TranscriptionUpdate.connect(on_transcription)
+print("Subscribed to TranscriptionUpdate signal")
+
+# Start live capture
+result = service.LiveVoiceRecognition("start", json.dumps({
+    "model": "tiny.en",
+    "capture_device": -1,
+    "threads": 8,
+    "step": 500,
+    "length": 5000
+}))
+print(f"Capture started: {result}")
+
+# Keep the event loop running to receive signals
+try:
+    loop = GLib.MainLoop()
+    loop.run()
+except KeyboardInterrupt:
+    # Stop capture on Ctrl+C
+    service.LiveVoiceRecognition("stop", "{}")
+    print("\n\nFull transcription:")
+    print(" ".join(transcription_lines))
+```
+
+#### Shell / CLI Test
+
+```bash
+# Monitor live transcription from the command line
+dbus-monitor --session "interface='com.rigel.RigelService',member='TranscriptionUpdate'"
+
+# In another terminal, start capture:
+dbus-send --session --print-reply \
+  --dest=com.rigel.RigelService \
+  /com/rigel/RigelService \
+  com.rigel.RigelService.LiveVoiceRecognition \
+  string:"start" string:'{"model":"tiny.en"}'
+```
+
+#### Signal Reference
+
+| Signal                   | Argument | Description                          |
+| ------------------------ | -------- | ------------------------------------ |
+| `TranscriptionUpdate`    | `s` text | A transcribed line from live capture |
+
+The signal is emitted on the `com.rigel.RigelService` interface. Connect your handler **before** calling `start` to avoid missing early transcription lines.
 
 ### Basic Usage with Ollama
 
@@ -818,6 +1000,11 @@ RIGEL_SERVICE/
 │   ├── logger.py         # Logging utilities
 │   ├── rdb.py            # RAG database functionality
 │   ├── synth_n_recog.py  # Voice synthesis and recognition
+│   ├── whisper_live/     # whisper.cpp binaries and models for live voice recog
+│   │   ├── whisper-stream  # Real-time audio capture and transcription
+│   │   ├── whisper-cli     # Command-line transcription
+│   │   ├── lib/            # Shared libraries (libwhisper, libggml, etc.)
+│   │   └── models/         # ggml format models (tiny.en, base.en, small.en)
 │   ├── mcp/              # MCP (Model Context Protocol) tools
 │   │   └── rigel_tools_server.py  # MCP server implementation
 │   ├── synthesis_assets/ # Voice synthesis models
@@ -1412,6 +1599,7 @@ The web server provides the same functionality as the D-Bus server through HTTP 
 | `/analyze-image`               | POST   | Vision-based image analysis                 | `{"image_path": "string", "prompt": "string"}` |
 | `/synthesize-text`             | POST   | Convert text to speech                      | `{"text": "string", "mode": "chunk/linear"}` |
 | `/recognize-audio`             | POST   | Transcribe audio file to text               | Multipart form with `audio_file` and `model` |
+| `/live-voice-recognition`     | WebSocket | Live voice recognition audio stream         | Binary audio frames + JSON control messages   |
 | `/license-info`                | GET    | License and copyright information           | None                                         |
 | `/admin/switch-inference-engine` | POST | Switch between GROQ and OLLAMA backends     | `{"engine": "groq" or "ollama"}`             |
 | `/admin/current-inference-engine` | GET | Get current inference engine                | None                                         |
@@ -1827,6 +2015,57 @@ RIGEL includes comprehensive logging capabilities. Logs are written to:
 - `core/syslog.log` - System logs
 
 Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+## Testing
+
+RIGEL includes a comprehensive test suite under the `tests/` directory. Tests are written with [pytest](https://docs.pytest.org/) and cover both unit and integration scenarios.
+
+### Running Tests
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run a specific test file
+python -m pytest tests/test_rigel_core.py -v
+
+# Run with coverage (requires pytest-cov)
+pip install pytest-cov
+python -m pytest tests/ -v --cov=. --cov-report=term-missing
+```
+
+### Test Structure
+
+| File | Type | Description |
+|------|------|-------------|
+| `test_version.py` | Unit | Version format validation |
+| `test_logger.py` | Unit | `ColoredFormatter` level colors, `SysLog` creation and logging methods |
+| `test_os_tools.py` | Unit | `OSTools` command execution, temporary programs, system info, uptime formatting, cleanup |
+| `test_synth_preprocess.py` | Unit | TTS `preprocess_for_synthesis` pipeline, `_split_text_into_chunks` sentence-aware chunking, `Recognizer._extract_confidence` |
+| `test_rigel_core.py` | Unit | Core agent logic — see breakdown below |
+| `test_web_server_db.py` | Integration | SQLite API key management, tenant CRUD, rate limiting, usage tracking |
+| `test_user_tools.py` | Integration | User-defined tools CRUD, RAG data management, tenant isolation |
+
+### Agent / Memory / Tools Coverage (`test_rigel_core.py`)
+
+| Test Class | Tests | Covers |
+|-----------|-------|--------|
+| `TestContinuityBreakers` | 10 | All 10 continuity-breaker regex patterns (task done, impossible, stuck, etc.), case-insensitivity, false-positive prevention |
+| `TestEscapeTemplateBraces` | 5 | `_escape_template_braces` — tuples, dicts, already-escaped, passthrough |
+| `TestChunkToText` | 6 | `_chunk_to_text` — None, strings, content objects, list-of-strings, list-of-dicts |
+| `TestToolsMemoryStore` | 7 | `_build_tools_memory_context` (populated / empty / max_turns), `clear_tools_memory`, turn accumulation and 20-turn trimming |
+| `TestStreamFileManagement` | 2 | `_prepare_method_stream_file` path creation, write-and-readback |
+| `TestSanitizeNaturalLanguageOutput` | 6 | Think-tag removal, `CALL_TOOL_AGENT` prefix stripping (all variants), whitespace collapse, markdown char removal |
+| `TestNormalizeHomePaths` | 3 | `~` expansion, absolute path preservation, tilde-in-word no-op |
+| `TestExtractToolAgentTask` | 5 | Extraction from `CALL_TOOL_AGENT: <task>`, path normalization, variant formats (`_TOOL_`, `-TOOL-`, ` TOOL `) |
+| `TestResolveToolTask` | 2 | `_resolve_tool_task` extraction path + no-LLM fallback |
+| `TestLooksLikeCapabilityRefusal` | 7 | All 5 refusal patterns (no-access, cannot-access, no-real-time-data, unable-to), normal passthrough |
+| `TestCallToolAgentDetection` | 5 | D-Bus style bracketed `[CALL_TOOL_AGENT: ...]` detection, variants, bracket requirement |
+| `TestRigelWorkflow` | 4 | `_setup_workflow` app/memory creation, `get_conversation_history` empty state, `clear_memory` / `clear_tools_memory` |
+
+### Tests Don't Need Running Servers
+
+Unit tests are self-contained — they don't require a running LLM, ChromaDB, D-Bus daemon, or API server. Integration tests use temporary SQLite databases and never touch real data. Heavy dependencies (LangChain, FastAPI, Whisper, etc.) are mocked out with `unittest.mock`.
 
 ## Contributing
 

@@ -16,12 +16,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Depends, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import asyncio
+import threading
 import tempfile
 import os
 import concurrent.futures
@@ -37,9 +38,12 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 from core.rigel import RigelOllama, RigelGroq
+from core.extensions.rigel_claude_code_integration import RigelClaude
+
+_RIGEL_CLAUDE_ENABLED = os.getenv("RIGEL_CLAUDE_ENABLED", "false").lower() == "true"
 from core.rdb import DBConn
 from core.logger import SysLog
-from core.synth_n_recog import Synthesizer, Recognizer
+from core.synth_n_recog import Synthesizer, Recognizer, LiveVoiceRecognizer
 from core.vision import get_vision_engine
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from dotenv import load_dotenv
@@ -385,10 +389,13 @@ async def check_quotas_and_limits(tenant_info: Dict[str, Any], endpoint: str) ->
 rigel = None
 synthesizer = None
 recognizer = None
+live_recognizer = None
 vision_engine = None
 session_vector_db = None
 tools_rigel = None
 tools_rigel_signature = None
+_coding_agent_background_task = None  # {"query": str, "start_time": str, "thread": Thread}
+_coding_agent = None  # lazy-init RigelClaude singleton
 inference_engine = os.getenv("NORMAL_CHAT_ENGINE", os.getenv("INFERENCE_ENGINE", "groq")).lower()
 
 def _get_env_system_prompt(default_prompt: str) -> str:
@@ -447,6 +454,7 @@ async def lifespan(app: FastAPI):
     print("  POST /analyze-image - Analyze image content with vision engine")
     print("  POST /synthesize-text - Convert text to speech")
     print("  POST /recognize-audio - Transcribe audio file to text")
+    print("  WS  /live-voice-recognition - Live voice recognition via WebSocket")
     print("  GET  /license-info   - Display license and copyright information")
     print("  POST /admin/create-key - Create new API key (admin only)")
     print("  GET  /admin/usage/{tenant_id} - Get usage statistics (admin only)")
@@ -541,6 +549,40 @@ class InferenceEngineResponse(BaseModel):
     engine: str
     status: str
 
+# ---------------------------------------------------------------------------
+# CodingAgent (RigelClaude) request/response models
+# ---------------------------------------------------------------------------
+
+class CodingGenerateRequest(BaseModel):
+    specification: str
+    language: str = "python"
+
+class CodingReviewRequest(BaseModel):
+    code: str
+    language: str = "python"
+
+class CodingDebugRequest(BaseModel):
+    code: str
+    error: str
+    language: str = "python"
+
+class CodingRefactorRequest(BaseModel):
+    code: str
+    instructions: str
+    language: str = "python"
+
+class CodingExplainRequest(BaseModel):
+    code: str
+    language: str = "python"
+
+class CodingExecuteRequest(BaseModel):
+    file_path: str
+    args: Optional[List[str]] = None
+
+class CodingHistoryRequest(BaseModel):
+    last_n: int = 20
+
+
 def _sanitize_natural_language_output(text: str) -> str:
     """Sanitize output to plain natural language without markdown-like formatting."""
     if not text:
@@ -554,6 +596,13 @@ def _sanitize_natural_language_output(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
+def _normalize_home_paths(text: str) -> str:
+    """Normalize ~ paths to an absolute host home path for downstream execution."""
+    if not text:
+        return text
+    preferred_home = os.getenv("HOST_HOME", "/home/zerone").rstrip("/")
+    return re.sub(r"(?<![A-Za-z0-9_])~(?=/|$)", preferred_home, text)
+
 def _extract_tool_agent_task(decision_text: str) -> Optional[str]:
     if not decision_text:
         return None
@@ -561,7 +610,7 @@ def _extract_tool_agent_task(decision_text: str) -> Optional[str]:
     match = re.match(r"^\s*CALL[\s_\-]*TOOL[\s_\-]*AGENT\s*:\s*(.*)$", decision_text, flags=re.IGNORECASE | re.DOTALL)
     if not match:
         return None
-    return match.group(1).strip()
+    return _normalize_home_paths(match.group(1).strip())
 
 def _resolve_tool_task(decision_text: str, user_query: str, thread_id: str) -> Optional[str]:
     tool_task = _extract_tool_agent_task(decision_text)
@@ -876,6 +925,109 @@ def _run_async_tools_query(query):
 def _execute_nl_tool_task(tool_task: str, thread_id: str):
     return _run_async_tools_query(tool_task)
 
+# --- Coding agent helpers (RigelClaude) ---
+
+def _has_call_coding_agent(text: str) -> bool:
+    """Check if text contains a [CALL_CODING_AGENT: ...] pattern."""
+    return _extract_coding_agent_task(text or "") is not None
+
+def _has_coding_agent_status_check(text: str) -> bool:
+    """Check if text contains [CODING_AGENT_STATUS_CHECK]."""
+    pattern = r'\[CODING[\s_\-]*AGENT[\s_\-]*STATUS[\s_\-]*CHECK\]'
+    return bool(re.search(pattern, text, flags=re.IGNORECASE))
+
+def _extract_coding_agent_task(decision_text: str) -> Optional[str]:
+    """Extract task from [CALL_CODING_AGENT: <task>] and tolerate missing closing bracket."""
+    if not decision_text:
+        return None
+    patterns = [
+        r"\[CALL[\s_\-]*CODING[\s_\-]*AGENT\s*:\s*(.*?)(?:\]|$)",
+        r"CALL[\s_\-]*CODING[\s_\-]*AGENT\s*:\s*(.*?)(?:\]|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, decision_text, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            task = match.group(1).strip()
+            return _normalize_home_paths(task) if task else None
+    return None
+
+def _get_or_create_coding_agent():
+    """Return the lazy-init RigelClaude singleton, or None if disabled."""
+    global _coding_agent
+    if not _RIGEL_CLAUDE_ENABLED:
+        return None
+    if _coding_agent is None:
+        syslog.info("Creating RigelClaude coding agent (lazy init)")
+        _coding_agent = RigelClaude(auto_launch=False)
+    return _coding_agent
+
+def _get_coding_agent_status_text() -> str:
+    """Return a natural-language summary of the coding agent's status."""
+    global _coding_agent_background_task
+
+    agent = _get_or_create_coding_agent()
+    if agent is None:
+        return "Coding agent is not available (RigelClaude is disabled)."
+
+    status = agent.get_status()
+
+    if _coding_agent_background_task is not None:
+        task_query = _coding_agent_background_task.get("query", "unknown")
+        start_time = _coding_agent_background_task.get("start_time", "unknown")
+        error = _coding_agent_background_task.get("error")
+        end_time = _coding_agent_background_task.get("end_time", "unknown")
+        if _coding_agent_background_task["thread"].is_alive():
+            return (
+                f"Coding agent is currently working on: '{task_query}'. "
+                f"Started at: {start_time}. "
+                f"Status: {status.get('status', 'unknown')}. "
+                f"Log entries so far: {status.get('log_entries', 0)}."
+            )
+        if error:
+            return (
+                f"Coding agent task failed: '{task_query}'. "
+                f"Started at: {start_time}. Ended at: {end_time}. "
+                f"Status: {status.get('status', 'unknown')}. Error: {error}"
+            )
+        else:
+            return f"Coding agent has finished the task: '{task_query}'. Status: {status.get('status', 'unknown')}."
+
+    return f"Coding agent is idle. Status: {status.get('status', 'unknown')}."
+
+def _spawn_background_coding_task(task: str):
+    """Launch a coding task in a background thread."""
+    global _coding_agent_background_task
+
+    agent = _get_or_create_coding_agent()
+    if agent is None:
+        return
+
+    task_record = {
+        "query": task,
+        "start_time": datetime.now().isoformat(),
+        "end_time": None,
+        "result_preview": None,
+        "error": None,
+        "thread": None,
+    }
+    _coding_agent_background_task = task_record
+
+    def _run_coding():
+        try:
+            result = agent.coding_task(task)
+            task_record["result_preview"] = (result or "")[:300]
+        except Exception as e:
+            task_record["error"] = str(e)
+            syslog.error(f"Background coding task error: {e}")
+        finally:
+            task_record["end_time"] = datetime.now().isoformat()
+
+    thread = threading.Thread(target=_run_coding, daemon=True)
+    task_record["thread"] = thread
+    thread.start()
+    syslog.info(f"Coding agent started background task: {task[:100]}...")
+
+
 def _get_or_create_tool_rigel():
     global tools_rigel, tools_rigel_signature
 
@@ -908,8 +1060,8 @@ def _get_or_create_tool_rigel():
 
 @app.post("/rigel-natural-language", response_model=QueryResponse)
 async def rigel_natural_language(request: NaturalLanguageRequest, tenant_info: Dict[str, Any] = Depends(require_api_key)):
-    """Memory-first multi-agent endpoint with tool delegation and natural language-only output."""
-    global rigel, system_prompt
+    """Memory-first multi-agent endpoint with tool, coding agent delegation and natural language-only output."""
+    global rigel, system_prompt, _coding_agent_background_task
 
     await check_quotas_and_limits(tenant_info, "rigel-natural-language")
 
@@ -930,14 +1082,29 @@ async def rigel_natural_language(request: NaturalLanguageRequest, tenant_info: D
         memory_agent_prompt = f"""
         {current_system_prompt}
 
-        You are the memory agent.
-        You do not have tool capabilities.
+        You are the memory / decision agent. You do not have tool capabilities yourself.
+        Decide what kind of execution the user request needs, if any.
 
-        Decide if the task requires tools.
-        If tools are needed, reply exactly in this format:
+        --- TOOL AGENT ---
+        If the request needs command execution, system state checks, file operations,
+        app/process management, time/date, network inspection, or web browsing,
+        reply exactly:
         CALL_TOOL_AGENT: <single concise task for the tool agent>
 
-        If tools are not needed, answer directly.
+        --- CODING AGENT ---
+        If the request involves writing code, generating a project, debugging,
+        refactoring, code review, creating files/scripts, building software,
+        or any software engineering task, reply exactly:
+        [CALL_CODING_AGENT: <detailed task for the coding agent>]
+        The coding agent runs in the BACKGROUND. When you activate it, immediately
+        inform the user that the coding agent has started and they can check status.
+
+        --- STATUS CHECK ---
+        If the user asks about the coding agent's progress or status, reply:
+        [CODING_AGENT_STATUS_CHECK]
+        You will receive the status and report it to the user.
+
+        If no tools or agents are needed, answer directly.
 
         Style rules for your final user-facing message:
         Use only natural language.
@@ -966,6 +1133,55 @@ async def rigel_natural_language(request: NaturalLanguageRequest, tenant_info: D
         max_tool_rounds = int(os.getenv("NATURAL_LANGUAGE_MAX_TOOL_ROUNDS", "3"))
         round_count = 0
 
+        # --- CODING AGENT STATUS CHECK (before tool loop) ---
+        if _has_coding_agent_status_check(decision_text):
+            syslog.info("CODING_AGENT_STATUS_CHECK detected")
+            status_text = _get_coding_agent_status_text()
+            status_summary = rigel.inference_with_memory(
+                messages=[
+                    ("system", f"{current_system_prompt}\n\nYou are the memory agent."),
+                    ("human", f"Coding agent status: {status_text}\n\nReport this to the user in natural language."),
+                ],
+                thread_id=thread_id,
+                RAG=False
+            )
+            response_content = status_summary.content if hasattr(status_summary, "content") else str(status_summary)
+            response_content = _sanitize_natural_language_output(response_content)
+            _save_vector_session_turn(thread_id, request.query, response_content)
+            return QueryResponse(response=response_content)
+
+        # --- CODING AGENT (fires background task, returns immediately) ---
+        elif _has_call_coding_agent(decision_text):
+            syslog.info("CALL_CODING_AGENT detected, spawning background task")
+            coding_task = _extract_coding_agent_task(decision_text)
+            if coding_task:
+                _spawn_background_coding_task(coding_task)
+            notification_prompt = f"""
+            {current_system_prompt}
+
+            You are the memory agent.
+            The coding agent has been started in the background with this task:
+            '{coding_task or request.query}'
+
+            Inform the user that the coding agent is now working in the background.
+            Tell them they can check its status by asking "how is the coding agent doing?"
+            or "check coding agent status".
+            Keep it short and natural.
+            """
+            final_response = rigel.inference_with_memory(
+                messages=[
+                    ("system", notification_prompt),
+                    ("human", f"User request: {request.query}")
+                ],
+                thread_id=thread_id,
+                RAG=False
+            )
+            response_content = final_response.content if hasattr(final_response, "content") else str(final_response)
+            response_content = _sanitize_natural_language_output(response_content)
+            _save_vector_session_turn(thread_id, request.query, response_content)
+            return QueryResponse(response=response_content)
+
+        # --- TOOL AGENT LOOP ---
         while tool_task is not None and round_count < max_tool_rounds:
             delegated = True
             round_count += 1
@@ -1011,6 +1227,32 @@ async def rigel_natural_language(request: NaturalLanguageRequest, tenant_info: D
             response_content = post_tool_decision.content if hasattr(post_tool_decision, "content") else str(post_tool_decision)
             response_content = response_content.strip()
             tool_task = _resolve_tool_task(response_content, request.query, thread_id)
+
+        # If tool stage decides to delegate coding agent/status, handle it now.
+        if _has_coding_agent_status_check(response_content):
+            status_text = _get_coding_agent_status_text()
+            status_summary = rigel.inference_with_memory(
+                messages=[
+                    ("system", f"{current_system_prompt}\n\nYou are the memory agent."),
+                    ("human", f"Coding agent status: {status_text}\n\nReport this to the user in natural language."),
+                ],
+                thread_id=thread_id,
+                RAG=False,
+            )
+            response_content = status_summary.content if hasattr(status_summary, "content") else str(status_summary)
+        elif _has_call_coding_agent(response_content):
+            coding_task = _extract_coding_agent_task(response_content)
+            if coding_task:
+                _spawn_background_coding_task(coding_task)
+            notify = rigel.inference_with_memory(
+                messages=[
+                    ("system", f"{current_system_prompt}\n\nYou are the memory agent."),
+                    ("human", f"The coding agent has started in background for task: '{coding_task or request.query}'. Inform the user briefly and naturally."),
+                ],
+                thread_id=thread_id,
+                RAG=False,
+            )
+            response_content = notify.content if hasattr(notify, "content") else str(notify)
 
         if (not delegated) and _looks_like_capability_refusal(response_content):
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -1172,6 +1414,113 @@ async def recognize_audio(
         error_msg = f"Error in audio recognition: {str(e)}"
         syslog.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
+
+@app.websocket("/live-voice-recognition")
+async def live_voice_recognition(websocket: WebSocket):
+    """WebSocket endpoint for live voice recognition.
+
+    Client connects and sends:
+      1. (optional) JSON config: {"model": "small.en", "threads": 8, ...}
+      2. Binary audio frames (WAV format, 16kHz mono 16-bit recommended)
+
+    Server responds with JSON messages:
+      {"type": "ready", "message": "..."}
+      {"type": "transcription", "text": "...", "partial": true/false}
+      {"type": "error", "message": "..."}
+      {"type": "done", "text": "final transcription"}
+
+    The server accumulates audio and transcribes when the client disconnects
+    or sends a JSON message with {"command": "transcribe"}.
+    """
+    global live_recognizer
+
+    await websocket.accept()
+    syslog.info("Live voice recognition WebSocket connected")
+
+    accumulated_audio = bytearray()
+    model = os.getenv("LIVE_VOICE_RECOGNITION_MODEL", "tiny.en")
+    threads = 8
+    tmp_path = None
+
+    try:
+        await websocket.send_json({"type": "ready", "message": "Live voice recognition ready", "model": model})
+
+        while True:
+            data = await websocket.receive()
+
+            if "text" in data:
+                # JSON control message
+                try:
+                    msg = json.loads(data["text"])
+                except json.JSONDecodeError:
+                    await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+                    continue
+
+                if msg.get("command") == "transcribe":
+                    if not accumulated_audio:
+                        await websocket.send_json({"type": "transcription", "text": "", "partial": True})
+                        continue
+
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                        tmp.write(bytes(accumulated_audio))
+                        tmp_path = tmp.name
+
+                    try:
+                        lvr = LiveVoiceRecognizer(model=model, threads=threads)
+                        transcription = lvr.transcribe_file(tmp_path)
+                        await websocket.send_json({"type": "transcription", "text": transcription, "partial": True})
+                    finally:
+                        if tmp_path and os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                            tmp_path = None
+
+                elif msg.get("command") == "reset":
+                    accumulated_audio = bytearray()
+                    await websocket.send_json({"type": "ready", "message": "Audio buffer reset"})
+
+                elif msg.get("command") == "config":
+                    model = msg.get("model", model)
+                    threads = msg.get("threads", threads)
+                    await websocket.send_json({"type": "ready", "message": f"Config updated: model={model}, threads={threads}"})
+
+            elif "bytes" in data:
+                # Binary audio data
+                chunk = data["bytes"]
+                accumulated_audio.extend(chunk)
+
+    except WebSocketDisconnect:
+        syslog.info("Live voice recognition WebSocket disconnected")
+    except Exception as e:
+        syslog.error(f"Live voice recognition error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
+    finally:
+        # Transcribe remaining audio on disconnect
+        if accumulated_audio:
+            try:
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                    tmp.write(bytes(accumulated_audio))
+                    tmp_path = tmp.name
+
+                lvr = LiveVoiceRecognizer(model=model, threads=threads)
+                transcription = lvr.transcribe_file(tmp_path)
+                try:
+                    await websocket.send_json({"type": "done", "text": transcription})
+                except Exception:
+                    pass
+            except Exception as e:
+                syslog.error(f"Final transcription failed: {e}")
+                try:
+                    await websocket.send_json({"type": "error", "message": f"Final transcription failed: {str(e)}"})
+                except Exception:
+                    pass
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
 @app.get("/license-info", response_model=LicenseResponse)
 async def get_license_info():
@@ -1369,10 +1718,123 @@ async def get_inference_engine(_: bool = Depends(require_admin_key)):
         status="Current engine"
     )
 
+
+# ---------------------------------------------------------------------------
+# CodingAgent endpoints (RigelClaude extension)
+# ---------------------------------------------------------------------------
+
+def _get_coding_agent():
+    """Return the lazy-init RigelClaude singleton, or None if disabled."""
+    return _get_or_create_coding_agent()
+
+def _coding_agent_required():
+    """FastAPI dependency — ensures RigelClaude is enabled."""
+    agent = _get_coding_agent()
+    if agent is None:
+        raise HTTPException(
+            status_code=503,
+            detail="RigelClaude is not enabled. Set RIGEL_CLAUDE_ENABLED=true in .env",
+        )
+    return agent
+
+
+@app.post("/coding-agent/generate-code", response_model=QueryResponse)
+async def coding_agent_generate_code(
+    request: CodingGenerateRequest,
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    result = agent.generate_code(request.specification, request.language)
+    return QueryResponse(response=result)
+
+
+@app.post("/coding-agent/review-code", response_model=QueryResponse)
+async def coding_agent_review_code(
+    request: CodingReviewRequest,
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    result = agent.review_code(request.code, request.language)
+    return QueryResponse(response=result)
+
+
+@app.post("/coding-agent/debug-code", response_model=QueryResponse)
+async def coding_agent_debug_code(
+    request: CodingDebugRequest,
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    result = agent.debug_code(request.code, request.error, request.language)
+    return QueryResponse(response=result)
+
+
+@app.post("/coding-agent/refactor-code", response_model=QueryResponse)
+async def coding_agent_refactor_code(
+    request: CodingRefactorRequest,
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    result = agent.refactor_code(request.code, request.instructions, request.language)
+    return QueryResponse(response=result)
+
+
+@app.post("/coding-agent/explain-code", response_model=QueryResponse)
+async def coding_agent_explain_code(
+    request: CodingExplainRequest,
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    result = agent.explain_code(request.code, request.language)
+    return QueryResponse(response=result)
+
+
+@app.post("/coding-agent/execute-code", response_model=QueryResponse)
+async def coding_agent_execute_code(
+    request: CodingExecuteRequest,
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    result = agent.execute_code_in_project(request.file_path, request.args)
+    return QueryResponse(response=result)
+
+
+@app.get("/coding-agent/status")
+async def coding_agent_get_status(
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    return agent.get_status()
+
+
+@app.get("/coding-agent/history")
+async def coding_agent_get_history(
+    last_n: int = 20,
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    return agent.get_coding_history(last_n=last_n)
+
+
+@app.post("/coding-agent/launch")
+async def coding_agent_launch(
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    return agent.launch()
+
+
+@app.post("/coding-agent/close")
+async def coding_agent_close(
+    tenant_info: dict = Depends(require_api_key),
+):
+    agent = _coding_agent_required()
+    return agent.close()
+
+
 # Initialize RIGEL backend
 async def initialize_rigel():
     """Initialize RIGEL backend and voice components"""
-    global rigel, synthesizer, recognizer, inference_engine, tools_rigel, tools_rigel_signature
+    global rigel, synthesizer, recognizer, live_recognizer, inference_engine, tools_rigel, tools_rigel_signature
     
     print("RIGEL Web Service")
     print("Copyright (C) 2025 Zerone Laboratories")
@@ -1479,6 +1941,16 @@ async def initialize_rigel():
     except Exception as e:
         print(f"Warning: Failed to initialize voice components: {e}")
         print("Voice features may not be available")
+
+    print("Initializing live voice recognition...")
+    try:
+        live_recognizer = LiveVoiceRecognizer(
+            model=os.getenv("LIVE_VOICE_RECOGNITION_MODEL", "tiny.en")
+        )
+        print("Live voice recognition initialized successfully")
+    except Exception as e:
+        print(f"Warning: Failed to initialize live voice recognition: {e}")
+        print("Live voice recognition features may not be available")
 
     tools_rigel = None
     tools_rigel_signature = None

@@ -23,11 +23,21 @@ services:
       - TEMPERATURE=${TEMPERATURE:-0.7}
       - TOOL_TEMPERATURE=${TOOL_TEMPERATURE:-0.0}
       - VOICE_RECOGNITION_MODEL=${VOICE_RECOGNITION_MODEL:-tiny}
+      - LIVE_VOICE_RECOGNITION_MODEL=${LIVE_VOICE_RECOGNITION_MODEL:-tiny.en}
       - RIGEL_MCP_TOOLS_SSE_URL=${RIGEL_MCP_TOOLS_SSE_URL:-http://localhost:8001/sse}
       - PRODUCTION=true
       - PYTHONUNBUFFERED=1
       - SERVER_TYPE=${SERVER_TYPE:-dbus} # Options: web_instanced|web|web_v2|dbus|hybrid
+      # Anthropic / Claude Code API (for RigelClaude extension)
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL}
+      - ANTHROPIC_DEFAULT_OPUS_MODEL=${ANTHROPIC_DEFAULT_OPUS_MODEL}
+      - ANTHROPIC_DEFAULT_SONNET_MODEL=${ANTHROPIC_DEFAULT_SONNET_MODEL}
+      - ANTHROPIC_DEFAULT_HAIKU_MODEL=${ANTHROPIC_DEFAULT_HAIKU_MODEL}
+      - RIGEL_CLAUDE_ENABLED=${RIGEL_CLAUDE_ENABLED:-false}
       - PULSE_SERVER=unix:/tmp/pulse/native
+      - SDL_AUDIODRIVER=pulseaudio
       - HOST_TMP_MOUNT=${HOST_TMP_MOUNT:-/host_tmp}
       # Point to the host system D-Bus if available (socket mounted below)
       - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
@@ -35,26 +45,36 @@ services:
       - .:/app
       - ./user_tools:/app/user_tools
       - ./user_rag:/app/user_rag
+      - /home/zerone/.rigel:/home/zerone/.rigel
+      - /home/zerone:/home/zerone
       # Persist databases under /app/db (host ./db)
       - ./db:/app/db
       - ollama-models:/root/.ollama
       - chroma-cache:/root/.cache/chroma
       # Mount system ollama binary
       - /usr/bin/ollama:/usr/bin/ollama:ro
+      # Mount system claude binary + wrapper (for RigelClaude extension)
+      # /usr/bin/claude is a shell script that execs /opt/claude-code/bin/claude
+      - /usr/bin/claude:/usr/bin/claude:ro
+      - /opt/claude-code:/opt/claude-code:ro
       # Mount host D-Bus system bus socket for host integration
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
       # Host PulseAudio socket/cookie for container audio playback
       - /run/user/${HOST_UID:-1000}/pulse/native:/tmp/pulse/native
       - ${HOST_HOME:-/home/zerone}/.config/pulse/cookie:/root/.config/pulse/cookie:ro
+      # Mount container /root to host sandbox directory
+      - ${HOST_HOME:-/home/zerone}/RIGEL_Sandbox:/root
       # Allow DBus RecognizeAudio to access host-created temp audio files
       - /tmp:/host_tmp:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      # Audio capture devices for live voice recognition (whisper-stream)
+      - /dev/snd:/dev/snd
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
       
   # rigel-tools-server is intentionally disabled in Docker-compose when using host MCP server.
   # Host MCP is managed by systemd via scripts/host-up.sh and listens on port 8001.

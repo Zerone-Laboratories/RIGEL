@@ -62,10 +62,16 @@ RUN ARCH=$(uname -m) && \
     rm -f /tmp/piper.tar.gz && \
     echo "Piper installed at /usr/local/bin/piper"
 
+# Install SDL2 for whisper-stream audio capture
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsdl2-2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Piper needs its shared libraries (libespeak-ng, libonnxruntime, libpiper_phonemize)
 # which are co-located in /opt/piper/
-ENV LD_LIBRARY_PATH="/opt/piper:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/opt/piper:/app/core/whisper_live/lib:${LD_LIBRARY_PATH}"
 ENV ESPEAK_DATA_PATH="/opt/piper/espeak-ng-data"
+ENV LIVE_VOICE_RECOGNITION_MODEL="tiny.en"
 
 # Copy requirements first to leverage Docker cache
 WORKDIR /app

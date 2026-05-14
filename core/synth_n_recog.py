@@ -295,6 +295,196 @@ class Synthesizer:
 
 
 
+class LiveVoiceRecognizer:
+    """Live voice recognition using whisper.cpp binaries (whisper-stream / whisper-cli).
+
+    Two modes:
+      - device capture: uses whisper-stream to capture from a local audio device
+      - audio data: uses whisper-cli to transcribe raw audio data (WAV/PCM)
+    """
+
+    WHISPER_LIVE_DIR = os.path.join(os.path.dirname(__file__), "whisper_live")
+    WHISPER_LIB_DIR = os.path.join(WHISPER_LIVE_DIR, "lib")
+    WHISPER_MODEL_DIR = os.path.join(WHISPER_LIVE_DIR, "models")
+
+    def __init__(self, model="tiny.en", capture_device=-1, threads=8, step=500, length=5000):
+        self.model = model
+        self.capture_device = capture_device
+        self.threads = threads
+        self.step = step
+        self.length = length
+        self._stream_process = None
+        self._resolve_binaries()
+
+    def _resolve_binaries(self):
+        """Locate whisper-stream and whisper-cli binaries."""
+        stream_bin = os.path.join(self.WHISPER_LIVE_DIR, "whisper-stream")
+        cli_bin = os.path.join(self.WHISPER_LIVE_DIR, "whisper-cli")
+        if not os.path.exists(stream_bin):
+            raise FileNotFoundError(f"whisper-stream binary not found at {stream_bin}")
+        if not os.path.exists(cli_bin):
+            raise FileNotFoundError(f"whisper-cli binary not found at {cli_bin}")
+        self.stream_bin = stream_bin
+        self.cli_bin = cli_bin
+
+    def _get_model_path(self):
+        """Resolve model path from model name."""
+        model_file = f"ggml-{self.model}.bin"
+        model_path = os.path.join(self.WHISPER_MODEL_DIR, model_file)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found: {model_path}")
+        return model_path
+
+    def _env(self):
+        """Return environment dict with LD_LIBRARY_PATH set for the bundled libs.
+
+        Forces SDL2 to use PulseAudio so whisper-stream can capture from the
+        host audio device even inside Docker (PULSE_SERVER must be set)."""
+
+        env = os.environ.copy()
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{self.WHISPER_LIB_DIR}:{existing}" if existing else self.WHISPER_LIB_DIR
+        env.setdefault("SDL_AUDIODRIVER", "pulseaudio")
+        return env
+
+    def start_device_capture(self, callback=None):
+        """Start whisper-stream on a capture device.  Transcription lines are read
+        from stdout and passed to *callback*(line: str) if given.
+
+        Returns the Popen process handle.
+        """
+        if self._stream_process is not None:
+            raise RuntimeError("Device capture is already running")
+
+        model_path = self._get_model_path()
+        cmd = [
+            self.stream_bin,
+            "-m", model_path,
+            "-t", str(self.threads),
+            "--step", str(self.step),
+            "--length", str(self.length),
+            "-c", str(self.capture_device),
+        ]
+        self._stream_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=self._env(),
+        )
+
+        if callback:
+
+            def _reader():
+                try:
+                    for line in self._stream_process.stdout:
+                        line = line.strip()
+                        if line:
+                            callback(line)
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_reader, daemon=True)
+            t.start()
+
+        return self._stream_process
+
+    def stop_device_capture(self, timeout=5):
+        """Stop a running whisper-stream process."""
+        if self._stream_process is None:
+            return
+        try:
+            self._stream_process.terminate()
+            self._stream_process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self._stream_process.kill()
+            self._stream_process.wait()
+        finally:
+            self._stream_process = None
+
+    def is_capturing(self):
+        """Return True if device capture is currently running."""
+        return self._stream_process is not None and self._stream_process.poll() is None
+
+    def transcribe_file(self, audio_file_path, extra_args=None):
+        """Transcribe an audio file using whisper-cli.
+
+        Returns the transcription string.
+        """
+        model_path = self._get_model_path()
+        cmd = [
+            self.cli_bin,
+            "-m", model_path,
+            "-t", str(self.threads),
+            "-np",  # no extra prints, just results
+            "-f", audio_file_path,
+        ]
+        if extra_args:
+            cmd.extend(extra_args)
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=self._env(),
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"whisper-cli failed: {result.stderr}")
+        return result.stdout.strip()
+
+    def transcribe_stream(self, audio_data: bytes, extra_args=None):
+        """Transcribe raw audio data (WAV bytes) via whisper-cli.
+
+        Writes data to a temp file then calls whisper-cli.
+        Returns the transcription string.
+        """
+        import tempfile
+        suffix = ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(audio_data)
+            tmp_path = tmp.name
+        try:
+            return self.transcribe_file(tmp_path, extra_args=extra_args)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def transcribe_stream_iter(self, audio_file_path, extra_args=None):
+        """Yield transcription lines as they appear from whisper-cli (live mode).
+
+        Uses whisper-cli without -np so each segment is printed line-by-line.
+        """
+        model_path = self._get_model_path()
+        cmd = [
+            self.cli_bin,
+            "-m", model_path,
+            "-t", str(self.threads),
+            "-f", audio_file_path,
+        ]
+        if extra_args:
+            cmd.extend(extra_args)
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=self._env(),
+        )
+        try:
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    yield line
+        finally:
+            proc.stdout.close()
+            proc.wait()
+
+    def __del__(self):
+        self.stop_device_capture()
+
+
 if __name__ == "__main__":
     interpreter_location = subprocess.check_output(["which", "python"], text=True).strip()
     print(f"Python interpreter location: {interpreter_location}")
