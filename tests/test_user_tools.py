@@ -150,6 +150,24 @@ class TestToolCRUD:
         assert row[4] == '{"msg": "str"}'
         assert row[5] == 1  # active
 
+    def test_default_description_is_empty(self, db):
+        insert_tool(db, 1, "no_desc", "pass")
+        conn = sqlite3.connect(db)
+        desc = conn.execute(
+            "SELECT tool_description FROM user_tools WHERE tool_name = ?", ("no_desc",)
+        ).fetchone()[0]
+        conn.close()
+        assert desc == ""
+
+    def test_default_args_is_empty_json(self, db):
+        insert_tool(db, 1, "no_args", "pass")
+        conn = sqlite3.connect(db)
+        args = conn.execute(
+            "SELECT tool_args FROM user_tools WHERE tool_name = ?", ("no_args",)
+        ).fetchone()[0]
+        conn.close()
+        assert args == "{}"
+
     def test_default_active_is_true(self, db):
         insert_tool(db, 1, "default_active", "pass")
         conn = sqlite3.connect(db)
@@ -189,6 +207,40 @@ class TestToolCRUD:
         conn.close()
         assert active == 0
 
+    def test_update_tool_code(self, db):
+        insert_tool(db, 1, "updatable", "original code")
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "UPDATE user_tools SET tool_code = ? WHERE tool_name = ?",
+            ("updated code", "updatable"),
+        )
+        conn.commit()
+        new_code = conn.execute(
+            "SELECT tool_code FROM user_tools WHERE tool_name = ?", ("updatable",)
+        ).fetchone()[0]
+        conn.close()
+        assert new_code == "updated code"
+
+    def test_delete_tool(self, db):
+        insert_tool(db, 1, "deletable", "code")
+        conn = sqlite3.connect(db)
+        conn.execute("DELETE FROM user_tools WHERE tool_name = ?", ("deletable",))
+        conn.commit()
+        row = conn.execute(
+            "SELECT id FROM user_tools WHERE tool_name = ?", ("deletable",)
+        ).fetchone()
+        conn.close()
+        assert row is None
+
+    def test_created_at_is_set(self, db):
+        insert_tool(db, 1, "timed", "code")
+        conn = sqlite3.connect(db)
+        ts = conn.execute(
+            "SELECT created_at FROM user_tools WHERE tool_name = ?", ("timed",)
+        ).fetchone()[0]
+        conn.close()
+        assert ts is not None
+
 
 # ---------------------------------------------------------------------------
 # RAG data CRUD tests
@@ -223,6 +275,20 @@ class TestRagDataCRUD:
         assert row[0] == "pdf"
         assert "page 1" in row[1]
 
+    def test_default_data_type_is_text(self, db):
+        """When data_type is not specified, it should default to 'text'."""
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO rag_data (tenant_id, data_name, data_content) VALUES (?, ?, ?)",
+            (1, "default_type", "Content"),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT data_type FROM rag_data WHERE data_name = ?", ("default_type",)
+        ).fetchone()
+        conn.close()
+        assert row[0] == "text"
+
     def test_tenant_isolation(self, db):
         insert_rag(db, 1, "public", "T1 data")
         insert_rag(db, 2, "public", "T2 data")  # same name, different tenant
@@ -247,3 +313,37 @@ class TestRagDataCRUD:
         ).fetchone()[0]
         conn.close()
         assert count == 3
+
+    def test_delete_rag_data(self, db):
+        insert_rag(db, 1, "temp_data", "Temporary content")
+        conn = sqlite3.connect(db)
+        conn.execute("DELETE FROM rag_data WHERE data_name = ?", ("temp_data",))
+        conn.commit()
+        row = conn.execute(
+            "SELECT id FROM rag_data WHERE data_name = ?", ("temp_data",)
+        ).fetchone()
+        conn.close()
+        assert row is None
+
+    def test_update_rag_content(self, db):
+        insert_rag(db, 1, "updateable", "Old content")
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "UPDATE rag_data SET data_content = ? WHERE data_name = ?",
+            ("New content", "updateable"),
+        )
+        conn.commit()
+        content = conn.execute(
+            "SELECT data_content FROM rag_data WHERE data_name = ?", ("updateable",)
+        ).fetchone()[0]
+        conn.close()
+        assert content == "New content"
+
+    def test_created_at_is_set_rag(self, db):
+        insert_rag(db, 1, "timed_data", "Content")
+        conn = sqlite3.connect(db)
+        ts = conn.execute(
+            "SELECT created_at FROM rag_data WHERE data_name = ?", ("timed_data",)
+        ).fetchone()[0]
+        conn.close()
+        assert ts is not None

@@ -205,6 +205,8 @@ class Synthesizer:
             print(f"Error playing chunk {chunk_id}: {e}")
 
     def _split_text_into_chunks(self, text, max_words=80):
+        if not text:
+            return []
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         chunks = []
         current_words = []
@@ -239,8 +241,8 @@ class Synthesizer:
             text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text)
 
             text = re.sub(r'\(e\.?g\.?\)', 'example', text, flags=re.IGNORECASE)
-            text = re.sub(r'\beg\.\b', 'example', text, flags=re.IGNORECASE)
-            text = re.sub(r'\be\.g\.\b', 'example', text, flags=re.IGNORECASE)
+            text = re.sub(r'\beg\.(?![a-zA-Z])', 'example', text, flags=re.IGNORECASE)
+            text = re.sub(r'\be\.g\.(?![a-zA-Z])', 'example', text, flags=re.IGNORECASE)
 
             text = re.sub(r'`[^`]*`', '', text)
 

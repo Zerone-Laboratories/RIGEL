@@ -53,6 +53,12 @@ class TestExecuteCommand:
         assert result["success"] is False
         assert "timed out" in result.get("error", "")
 
+    def test_timeout_uses_default(self):
+        tools = OSTools(max_execution_time=1)
+        result = tools.execute_command("sleep 3")  # no explicit timeout
+        assert result["success"] is False
+        assert "timed out" in result.get("error", "")
+
     def test_working_dir(self, temp_dir):
         tools = OSTools()
         result = tools.execute_command("pwd", working_dir=temp_dir)
@@ -65,6 +71,30 @@ class TestExecuteCommand:
         assert result["success"] is False
         assert result["exit_code"] == 1
         assert "error" in result["stderr"]
+
+    def test_command_in_response(self):
+        tools = OSTools()
+        result = tools.execute_command("echo test_cmd")
+        assert result["command"] == "echo test_cmd"
+
+    def test_env_vars_passed(self):
+        tools = OSTools()
+        result = tools.execute_command("echo $MY_VAR", env={"MY_VAR": "testvalue"})
+        assert result["success"] is True
+        assert "testvalue" in result["stdout"]
+
+    def test_empty_command(self):
+        tools = OSTools()
+        result = tools.execute_command("")
+        # Empty command may succeed or fail depending on shell
+        assert "command" in result
+
+    def test_semicolon_in_command(self):
+        tools = OSTools()
+        result = tools.execute_command("echo first; echo second")
+        assert result["success"] is True
+        assert "first" in result["stdout"]
+        assert "second" in result["stdout"]
 
 
 class TestCreateTempProgram:
@@ -89,6 +119,26 @@ class TestCreateTempProgram:
         tools = OSTools(temp_dir=temp_dir)
         result = tools.create_temp_program("x=1", ".py")
         assert result["file_path"].startswith(temp_dir)
+        tools.cleanup()
+
+    def test_creates_js_file(self):
+        tools = OSTools()
+        result = tools.create_temp_program("console.log('hi');", ".js")
+        assert result["success"] is True
+        assert result["file_name"].endswith(".js")
+        tools.cleanup()
+
+    def test_unique_filenames(self):
+        tools = OSTools()
+        r1 = tools.create_temp_program("1", ".py")
+        r2 = tools.create_temp_program("2", ".py")
+        assert r1["file_name"] != r2["file_name"]
+        tools.cleanup()
+
+    def test_file_added_to_temp_files_list(self):
+        tools = OSTools()
+        result = tools.create_temp_program("x=1", ".py")
+        assert result["file_path"] in tools.temp_files
         tools.cleanup()
 
 
@@ -135,11 +185,20 @@ class TestFormatUptime:
         tools = OSTools()
         assert "30 seconds" in tools._format_uptime(30)
 
+    def test_single_second(self):
+        tools = OSTools()
+        assert "1 second" in tools._format_uptime(1)
+
     def test_minutes_and_seconds(self):
         tools = OSTools()
         result = tools._format_uptime(125)
         assert "2 minutes" in result
         assert "5 seconds" in result
+
+    def test_hours(self):
+        tools = OSTools()
+        result = tools._format_uptime(7200)
+        assert "2 hours" in result
 
     def test_days(self):
         tools = OSTools()
@@ -147,9 +206,22 @@ class TestFormatUptime:
         assert "2 days" in result
         assert "1 hour" in result
 
+    def test_single_day(self):
+        tools = OSTools()
+        result = tools._format_uptime(86400)
+        assert "1 day" in result
+
     def test_zero(self):
         tools = OSTools()
         assert "0 seconds" in tools._format_uptime(0)
+
+    def test_large_value(self):
+        tools = OSTools()
+        result = tools._format_uptime(90061)  # 1 day, 1 hour, 1 minute, 1 second
+        assert "1 day" in result
+        assert "1 hour" in result
+        assert "1 minute" in result
+        assert "1 second" in result
 
 
 class TestCleanup:

@@ -3,6 +3,7 @@
 import re
 import math
 import sys
+import pytest
 from unittest.mock import MagicMock
 
 # core/synth_n_recog.py does `import whisper` at module level.
@@ -28,8 +29,8 @@ def _preprocess(text):
     text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text)
     # Replace Latin abbreviations
     text = re.sub(r'\(e\.?g\.?\)', 'example', text, flags=re.IGNORECASE)
-    text = re.sub(r'\beg\.\b', 'example', text, flags=re.IGNORECASE)
-    text = re.sub(r'\be\.g\.\b', 'example', text, flags=re.IGNORECASE)
+    text = re.sub(r'\beg\.(?![a-zA-Z])', 'example', text, flags=re.IGNORECASE)
+    text = re.sub(r'\be\.g\.(?![a-zA-Z])', 'example', text, flags=re.IGNORECASE)
     # Remove inline code
     text = re.sub(r'`[^`]*`', '', text)
     # Remove markdown headings
@@ -150,6 +151,45 @@ class TestPreprocessForSynthesis:
         # After join, multiple spaces are collapsed
         assert "    " not in out
 
+    def test_empty_string(self):
+        out = _preprocess("")
+        assert out == ""
+
+    def test_only_special_chars(self):
+        out = _preprocess("*** ~~~ ###")
+        # After stripping formatting markers, should be essentially empty
+        assert len(out) == 0 or out.isspace() or out == ""
+
+    def test_multiline_collapsed(self):
+        text = "Line one.\n\n\nLine two.\n\nLine three."
+        out = _preprocess(text)
+        # After processing, multi-newlines should collapse into single text
+        assert "one" in out
+        assert "two" in out
+        assert "three" in out
+
+    def test_emoji_removed(self):
+        text = "Hello \U0001F600 world \U0001F30D test"
+        out = _preprocess(text)
+        assert "\U0001F600" not in out
+        assert "\U0001F30D" not in out
+        assert "Hello" in out
+        assert "world" in out
+
+    def test_multiple_eg_patterns(self):
+        text = "Use e.g. this or eg. that or (e.g.) something."
+        out = _preprocess(text)
+        assert "e.g." not in out
+        assert "eg." not in out
+        assert "(e.g.)" not in out
+        assert "example" in out
+
+    def test_mixed_content_preserved(self):
+        text = "The quick brown fox jumps over the lazy dog."
+        out = _preprocess(text)
+        assert "quick brown fox" in out
+        assert "lazy dog" in out
+
 
 class TestSplitTextIntoChunks:
     """Tests for _split_text_into_chunks."""
@@ -190,6 +230,28 @@ class TestSplitTextIntoChunks:
         synth = Synthesizer()
         chunks = synth._split_text_into_chunks("  Hello world.   ", max_words=80)
         assert chunks[0] == "Hello world."
+
+    def test_exactly_at_limit(self):
+        synth = Synthesizer()
+        text = "One two three four five six seven eight."
+        chunks = synth._split_text_into_chunks(text, max_words=8)
+        assert len(chunks) == 1
+        assert "eight" in chunks[0]
+
+    def test_none_input_returns_empty(self):
+        synth = Synthesizer()
+        chunks = synth._split_text_into_chunks(None, max_words=80)
+        assert chunks == []
+
+    @pytest.mark.parametrize("max_words", [1, 5, 10, 20, 50])
+    def test_various_limits(self, max_words):
+        synth = Synthesizer()
+        words = " ".join(f"word{i}" for i in range(30))
+        chunks = synth._split_text_into_chunks(words, max_words=max_words)
+        # Every chunk should respect the word limit
+        for chunk in chunks:
+            assert len(chunk.split()) <= max_words, \
+                f"Chunk has {len(chunk.split())} words, limit is {max_words}"
 
 
 class TestRecognizerConfidence:
