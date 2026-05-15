@@ -1,21 +1,16 @@
 #!/bin/bash
 
-# This script runs before the server starts to ensure database is initialized
 set -euo pipefail
 
 echo "Initializing RIGEL tools database..."
 python -c "from user_tools import init_tools_database; init_tools_database()"
 
 ensure_piper() {
-  # 1. Check if piper is already on PATH (e.g. installed at build time in Dockerfile)
   if command -v piper >/dev/null 2>&1; then
     echo "Piper binary found at $(which piper)"
     return
   fi
 
-  # 2. Check the runtime cache directory for a previously downloaded binary.
-  #    The piper tar extracts into a piper/ subdirectory, so the actual binary
-  #    lives at $PIPER_CACHE_DIR/piper/piper (not $PIPER_CACHE_DIR/piper).
   PIPER_CACHE_DIR=${PIPER_CACHE_DIR:-/app/.cache/piper}
   mkdir -p "$PIPER_CACHE_DIR"
 
@@ -26,7 +21,6 @@ ensure_piper() {
     return
   fi
 
-  # 3. Fallback: download and cache the piper binary at runtime
   PIPER_VERSION=${PIPER_VERSION:-1.2.0}
   ARCH=$(uname -m)
   case "$ARCH" in
@@ -99,7 +93,6 @@ PY
     done
   fi
 
-  # The tar creates a piper/ subdirectory, so binary is at $PIPER_CACHE_DIR/piper/piper
   PIPER_BIN_PATH=$(find "$PIPER_CACHE_DIR" -type f -name piper 2>/dev/null | head -n 1 || true)
 
   if [ -z "$PIPER_BIN_PATH" ] || [ ! -f "$PIPER_BIN_PATH" ]; then
@@ -148,8 +141,6 @@ else
   echo "Voice bootstrap disabled via ENABLE_VOICE_FEATURES=false"
 fi
 
-# If explicit command args are provided, treat them as override EXCEPT when
-# they match the default DBus server command (we still want DBus setup then).
 if [ $# -gt 0 ]; then
   if [ "$1" = "python" ] && [ "${2:-}" = "dbus_server.py" ]; then
     echo "Detected default DBus server command; running with DBus setup."
@@ -160,13 +151,9 @@ if [ $# -gt 0 ]; then
   fi
 fi
 
-# Support both INFERENCE_ENGINE (docs) and DEFAULT_INFERENCE_ENGINE (compose)
 ENGINE=${INFERENCE_ENGINE:-${DEFAULT_INFERENCE_ENGINE:-groq}}
 
-# Only manage Ollama locally if expressly using the ollama engine.
 if [ "$ENGINE" = "ollama" ]; then
-  # Prefer system/host-provided Ollama if available. We only attempt to install
-  # inside the container when no binary is present.
   if command -v ollama >/dev/null 2>&1; then
     echo "Ollama binary found at $(which ollama)"
   else
@@ -174,7 +161,6 @@ if [ "$ENGINE" = "ollama" ]; then
     echo "Set OLLAMA_HOST to a reachable host (e.g. http://host.docker.internal:11434) or mount /usr/bin/ollama to use host binary."
   fi
 
-  # If targeting a local Ollama endpoint, optionally start it if the binary exists.
   OLLAMA_TARGET=${OLLAMA_HOST:-http://localhost:11434}
   if [[ "$OLLAMA_TARGET" == http://localhost:* || "$OLLAMA_TARGET" == http://127.0.0.1:* ]]; then
     if command -v ollama >/dev/null 2>&1; then

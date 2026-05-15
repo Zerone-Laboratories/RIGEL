@@ -8,6 +8,9 @@ import os
 import re
 import sys
 import tempfile
+
+# Ensure project root is on sys.path so `core` and `web_server` are importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
@@ -183,6 +186,20 @@ class TestContinuityBreakers:
         for pattern in Rigel().continuity_patterns:
             assert pattern.pattern  # ensures it's a valid compiled regex
 
+    @pytest.mark.parametrize("text", [
+        "The task is done.",
+        "Please provide more information.",
+        "The task is impossible.",
+        "Let me know.",
+        "Unable to continue.",
+        "No specific action to perform.",
+        "It seems we're stuck",
+    ])
+    def test_parametrized_breakers(self, text):
+        """Parametrized check that key phrases trigger continuity breakers."""
+        patterns = Rigel().continuity_patterns
+        assert any(p.search(text) for p in patterns), f"Should detect: {text}"
+
 
 # ============================================================================
 # Template Brace Escaping — _escape_template_braces
@@ -222,6 +239,13 @@ class TestEscapeTemplateBraces:
         assert escaped[1] == 42
         assert escaped[2] is None
 
+    def test_mixed_braced_and_plain(self):
+        rigel = Rigel()
+        msgs = [("system", "Hello {user}"), ("human", "No braces")]
+        escaped = rigel._escape_template_braces(msgs)
+        assert escaped[0][1] == "Hello {{user}}"
+        assert escaped[1][1] == "No braces"
+
 
 # ============================================================================
 # Chunk To Text — _chunk_to_text
@@ -259,6 +283,13 @@ class TestChunkToText:
         obj = MagicMock()
         obj.content = ""
         assert rigel._chunk_to_text(obj) == ""
+
+    def test_object_with_no_content(self):
+        rigel = Rigel()
+        obj = MagicMock(spec=[])  # object with no content attribute
+        result = rigel._chunk_to_text(obj)
+        # Should return something (str conversion of the mock)
+        assert isinstance(result, str)
 
 
 # ============================================================================
@@ -399,6 +430,11 @@ class TestSanitizeNaturalLanguageOutput:
         assert _sanitize_natural_language_output("") == ""
         assert _sanitize_natural_language_output(None) == ""
 
+    def test_script_tags_are_handled(self):
+        text = "<script>alert('xss')</script> normal text"
+        out = _sanitize_natural_language_output(text)
+        assert "normal text" in out
+
 
 # ============================================================================
 # Home Path Normalization
@@ -457,6 +493,16 @@ class TestExtractToolAgentTask:
         """When task body is empty, returns empty string (and caller uses user_query)."""
         result = _extract_tool_agent_task("CALL_TOOL_AGENT:")
         assert result == ""
+
+    def test_extracts_with_whitespace_variants(self):
+        tasks = [
+            ("CALL_TOOL_AGENT:  extra spaces  ", "extra spaces"),
+            ("CALL_TOOL_AGENT:\ttab task", "tab task"),
+            ("CALL_TOOL_AGENT:  \t  mixed whitespace", "mixed whitespace"),
+        ]
+        for text, expected in tasks:
+            result = _extract_tool_agent_task(text)
+            assert result == expected, f"Failed for: {text!r}"
 
 
 # ============================================================================

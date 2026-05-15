@@ -9,10 +9,10 @@ services:
     env_file:
       - .env
     environment:
-      - GROQ_API_KEY=${GROQ_API_KEY} # Read from .env or shell
-      - OPENAI_API_KEY=${OPENAI_API_KEY} # For vision models
-      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq} # Default can be overridden in .env
-      - OLLAMA_USE_GPU=true # Force Ollama to use GPU
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - INFERENCE_ENGINE=${INFERENCE_ENGINE:-groq}
+      - OLLAMA_USE_GPU=true
       - RIGEL_ADMIN_KEY=this_is_a_secret_key
       - GROQ_MODEL=${GROQ_MODEL:-openai/gpt-oss-120b}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
@@ -47,26 +47,17 @@ services:
       - ./user_rag:/app/user_rag
       - /home/zerone/.rigel:/home/zerone/.rigel
       - /home/zerone:/home/zerone
-      # Persist databases under /app/db (host ./db)
       - ./db:/app/db
       - ollama-models:/root/.ollama
       - chroma-cache:/root/.cache/chroma
-      # Mount system ollama binary
       - /usr/bin/ollama:/usr/bin/ollama:ro
-      # Mount system claude binary + wrapper (for RigelClaude extension)
-      # /usr/bin/claude is a shell script that execs /opt/claude-code/bin/claude
       - /usr/bin/claude:/usr/bin/claude:ro
       - /opt/claude-code:/opt/claude-code:ro
-      # Mount host D-Bus system bus socket for host integration
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro
-      # Host PulseAudio socket/cookie for container audio playback
       - /run/user/${HOST_UID:-1000}/pulse/native:/tmp/pulse/native
       - ${HOST_HOME:-/home/zerone}/.config/pulse/cookie:/root/.config/pulse/cookie:ro
-      # Mount container /root to host sandbox directory
       - ${HOST_HOME:-/home/zerone}/RIGEL_Sandbox:/root
-      # Allow DBus RecognizeAudio to access host-created temp audio files
       - /tmp:/host_tmp:ro
-      # Audio capture devices for live voice recognition (whisper-stream)
       - /dev/snd:/dev/snd
     # deploy:
     #   resources:

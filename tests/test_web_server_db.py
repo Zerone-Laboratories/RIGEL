@@ -258,6 +258,27 @@ class TestRateLimit:
         info = get_tenant(db, key)
         assert check_rate_limit(db, info["tenant_id"], "/query") is True
 
+    def test_multiple_requests_within_limit(self, db):
+        key = create_api_key(db, "RateMulti", plan="pro")  # 60 rpm
+        info = get_tenant(db, key)
+        for _ in range(50):
+            allowed = check_rate_limit(db, info["tenant_id"], "/query")
+            assert allowed is True
+
+    def test_different_endpoints_separate_limits(self, db):
+        key = create_api_key(db, "RateEp")
+        info = get_tenant(db, key)
+        # First request on each endpoint should be allowed
+        assert check_rate_limit(db, info["tenant_id"], "/query") is True
+        assert check_rate_limit(db, info["tenant_id"], "/query-with-tools") is True
+
+    def test_plan_default_rate_limit(self, db):
+        """Unknown plan should use the default rate limit (10 rpm for free)."""
+        key = create_api_key(db, "DefaultPlan", plan="unknown_plan")
+        info = get_tenant(db, key)
+        assert info["plan"] == "free"
+        assert check_rate_limit(db, info["tenant_id"], "/query") is True
+
 
 class TestRecordUsage:
     def test_records_usage_row(self, db):
@@ -291,6 +312,32 @@ class TestRecordUsage:
         assert len(rows) == 2
         assert rows[0][0] == "/query"
         assert rows[1][0] == "/query-with-tools"
+
+    def test_default_values_zero(self, db):
+        key = create_api_key(db, "DefaultUsage")
+        info = get_tenant(db, key)
+        record_usage(db, info["tenant_id"], "/query")
+        conn = sqlite3.connect(db)
+        row = conn.execute(
+            "SELECT tokens_estimated, duration_ms FROM usage WHERE tenant_id = ?",
+            (info["tenant_id"],),
+        ).fetchone()
+        conn.close()
+        assert row[0] == 0
+        assert row[1] == 0
+
+    def test_multiple_usage_entries(self, db):
+        key = create_api_key(db, "MultiUse")
+        info = get_tenant(db, key)
+        for _ in range(5):
+            record_usage(db, info["tenant_id"], "/query", tokens_estimated=10)
+        conn = sqlite3.connect(db)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM usage WHERE tenant_id = ?",
+            (info["tenant_id"],),
+        ).fetchone()[0]
+        conn.close()
+        assert count == 5
 
 
 class TestTenantIsolation:
