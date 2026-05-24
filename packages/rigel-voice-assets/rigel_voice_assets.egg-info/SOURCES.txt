@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+rigel_voice_assets/__init__.py
+rigel_voice_assets/__main__.py
+rigel_voice_assets.egg-info/PKG-INFO
+rigel_voice_assets.egg-info/SOURCES.txt
+rigel_voice_assets.egg-info/dependency_links.txt
+rigel_voice_assets.egg-info/entry_points.txt
+rigel_voice_assets.egg-info/top_level.txt

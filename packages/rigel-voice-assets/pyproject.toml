@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel", "build"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rigel-voice-assets"
+version = "5.0.0"
+description = "Optional asset locator package for Rigel voice synthesis/live recognition binaries and models."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+authors = [
+  { name = "Zerone Laboratories Systems" }
+]
+
+[project.urls]
+Homepage = "https://github.com/zeronelabs/rigel"
+Repository = "https://github.com/zeronelabs/rigel"
+
+[project.scripts]
+rigel-voice-assets-guide = "rigel_voice_assets.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["rigel_voice_assets", "rigel_voice_assets.*"]

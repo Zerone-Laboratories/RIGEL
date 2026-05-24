@@ -17,12 +17,75 @@
 
 import subprocess
 import os
-import whisper
+import shutil
 import threading
 import queue
 import time
 import re
 import math
+
+try:
+    import whisper
+    _WHISPER_IMPORT_ERROR = None
+except Exception as exc:
+    whisper = None
+    _WHISPER_IMPORT_ERROR = exc
+
+
+class RigelSetupError(RuntimeError):
+    """Raised when runtime dependencies are missing or misconfigured."""
+
+
+def _build_setup_guide(message, steps):
+    numbered = [f"{i}. {step}" for i, step in enumerate(steps, start=1)]
+    return f"{message}\nSetup guide:\n" + "\n".join(numbered)
+
+
+def _local_core_dir():
+    return os.path.dirname(__file__)
+
+
+def _get_optional_voice_assets_dir(kind):
+    try:
+        import rigel_voice_assets
+    except Exception:
+        return None
+
+    if kind == "synthesis":
+        return rigel_voice_assets.get_synthesis_assets_dir()
+    if kind == "whisper_live":
+        return rigel_voice_assets.get_whisper_live_dir()
+    return None
+
+
+def _resolve_synthesis_assets_dir():
+    env_path = os.getenv("RIGEL_SYNTHESIS_ASSETS_DIR")
+    if env_path:
+        return os.path.abspath(env_path)
+
+    local = os.path.join(_local_core_dir(), "synthesis_assets")
+    if os.path.isdir(local):
+        return local
+
+    optional = _get_optional_voice_assets_dir("synthesis")
+    if optional:
+        return optional
+    return local
+
+
+def _resolve_whisper_live_dir():
+    env_path = os.getenv("RIGEL_WHISPER_LIVE_DIR")
+    if env_path:
+        return os.path.abspath(env_path)
+
+    local = os.path.join(_local_core_dir(), "whisper_live")
+    if os.path.isdir(local):
+        return local
+
+    optional = _get_optional_voice_assets_dir("whisper_live")
+    if optional:
+        return optional
+    return local
 
 
 class Recognizer:
@@ -35,10 +98,43 @@ class Recognizer:
         self.model_locks = [threading.Lock(), threading.Lock(), threading.Lock()]
         self.file_path = None
         self.output = None
+        self.last_confidence = None
+        self.last_text = ""
+        self.last_transcribe_at = 0.0
+        self._ensure_whisper_available()
+
+    def _ensure_whisper_available(self):
+        if whisper is not None:
+            return
+
+        raise RigelSetupError(
+            _build_setup_guide(
+                "Whisper is not available. Install speech recognition dependencies first.",
+                [
+                    "Install Python dependencies: pip install openai-whisper torch",
+                    "Install FFmpeg on your OS and ensure ffmpeg is available in PATH",
+                    f"Optional: set WHISPER_CACHE_DIR to control model cache location (current: {self.cache_dir})",
+                    "Retry recognition after installing dependencies",
+                ],
+            ) + f"\nOriginal error: {_WHISPER_IMPORT_ERROR}"
+        )
 
     def _get_model(self, worker_id):
         if self.models[worker_id] is None:
-            self.models[worker_id] = whisper.load_model(self.model_name, download_root=self.cache_dir)
+            try:
+                self.models[worker_id] = whisper.load_model(self.model_name, download_root=self.cache_dir)
+            except Exception as exc:
+                raise RigelSetupError(
+                    _build_setup_guide(
+                        f"Failed to load Whisper model '{self.model_name}'.",
+                        [
+                            f"Check write permissions for WHISPER_CACHE_DIR: {self.cache_dir}",
+                            "Ensure internet access is available for first-time model download",
+                            "Verify ffmpeg is installed and callable from PATH",
+                            "Try a smaller model first, for example model='tiny'",
+                        ],
+                    ) + f"\nOriginal error: {exc}"
+                ) from exc
         return self.models[worker_id]
 
     def _extract_confidence(self, result):
@@ -75,8 +171,10 @@ class Recognizer:
             print(f"Recognition worker {worker_id} failed: {e}")
             result_queue.put((0.0, "", worker_id))
 
-    def transcribe(self, filepath):
+    def transcribe_with_confidence(self, filepath):
         self.file_path = filepath
+        # Preflight so setup/config errors surface clearly before worker threads run.
+        self._get_model(0)
         result_queue = queue.Queue()
         threads = []
 
@@ -101,41 +199,78 @@ class Recognizer:
                 best_confidence = confidence
                 best_text = text
 
-        return best_text
+        self.last_confidence = max(0.0, best_confidence)
+        self.last_text = best_text or ""
+        self.last_transcribe_at = time.time()
+        return self.last_text, self.last_confidence
+
+    def transcribe(self, filepath):
+        text, _ = self.transcribe_with_confidence(filepath)
+        return text
     
 class Synthesizer:
-    SYNTHESIS_ASSETS_DIR = os.path.join(os.path.dirname(__file__), "synthesis_assets")
-
     def __init__(self, mode="chunk", voice=None):
         self.mode = mode
         self.threaded_execute_counter = None
         self.synthesis_queue = queue.Queue()
         self.playback_queue = queue.Queue()
-        self.piper_path = subprocess.check_output(["which", "piper"], text=True).strip()
+        self.piper_path = shutil.which("piper")
+        self.paplay_path = shutil.which("paplay")
+        self.synthesis_assets_dir = _resolve_synthesis_assets_dir()
         voice = voice or os.getenv("VOICE", "knight")
         self.set_voice(voice)
 
+    def _ensure_runtime_dependencies(self):
+        missing_tools = []
+        if not self.piper_path:
+            missing_tools.append("piper")
+        if not self.paplay_path:
+            missing_tools.append("paplay")
+
+        if missing_tools:
+            raise RigelSetupError(
+                _build_setup_guide(
+                    f"Speech synthesis dependencies are missing: {', '.join(missing_tools)}.",
+                    [
+                        "Install Piper TTS and make sure the `piper` command is in PATH",
+                        "Install PulseAudio utilities and make sure `paplay` is in PATH",
+                        "Install optional voice assets package: pip install rigel-core[voice-assets]",
+                        "Or point RIGEL_SYNTHESIS_ASSETS_DIR to a directory with .onnx voice models",
+                        "Run synthesis again after dependencies are installed",
+                    ],
+                )
+            )
+
     def set_voice(self, voice_name):
         """Switch the synthesis voice model. Falls back to 'knight' if the requested model doesn't exist."""
-        candidate = os.path.join(self.SYNTHESIS_ASSETS_DIR, f"{voice_name}.onnx")
+        candidate = os.path.join(self.synthesis_assets_dir, f"{voice_name}.onnx")
         if os.path.exists(candidate):
             self.model_path = candidate
             self.current_voice = voice_name
         else:
-            fallback = os.path.join(self.SYNTHESIS_ASSETS_DIR, "knight.onnx")
+            fallback = os.path.join(self.synthesis_assets_dir, "knight.onnx")
             if os.path.exists(fallback):
                 self.model_path = fallback
                 self.current_voice = "knight"
                 print(f"Voice '{voice_name}' not found, falling back to 'knight'")
             else:
-                raise FileNotFoundError(
-                    f"Voice model '{voice_name}.onnx' not found and fallback 'knight.onnx' is also missing"
+                available = self.list_available_voices(self.synthesis_assets_dir)
+                raise RigelSetupError(
+                    _build_setup_guide(
+                        f"Voice model '{voice_name}.onnx' is missing and fallback 'knight.onnx' was not found.",
+                        [
+                            "Install optional voice assets package: pip install rigel-core[voice-assets]",
+                            "Or set RIGEL_SYNTHESIS_ASSETS_DIR to a valid asset directory",
+                            "Set VOICE to one of the available model names",
+                            f"Available voices detected: {', '.join(available) if available else 'none'}",
+                        ],
+                    )
                 )
 
     @staticmethod
-    def list_available_voices():
+    def list_available_voices(assets_dir=None):
         """Return a list of available voice names (without .onnx extension)."""
-        assets_dir = Synthesizer.SYNTHESIS_ASSETS_DIR
+        assets_dir = assets_dir or _resolve_synthesis_assets_dir()
         if not os.path.isdir(assets_dir):
             return []
         voices = []
@@ -199,7 +334,9 @@ class Synthesizer:
     def _play_and_cleanup(self, chunk_id, output_file):
         try:
             print(f"Playing chunk {chunk_id}")
-            subprocess.run(["paplay", output_file])
+            result = subprocess.run([self.paplay_path, output_file], capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "paplay returned a non-zero exit code")
             os.remove(output_file)
         except Exception as e:
             print(f"Error playing chunk {chunk_id}: {e}")
@@ -233,6 +370,8 @@ class Synthesizer:
         return [chunk for chunk in chunks if chunk]
 
     def synthesize(self, text):
+        self._ensure_runtime_dependencies()
+
         def preprocess_for_synthesis(text):
             text = re.sub(r'^\s*\d+\.\s+.*$', '', text, flags=re.MULTILINE)
 
@@ -321,7 +460,9 @@ class Synthesizer:
                 piper_process.communicate(input=text)
                 
                 if piper_process.returncode == 0:
-                    subprocess.run(["paplay", output_file])
+                    result = subprocess.run([self.paplay_path, output_file], capture_output=True, text=True)
+                    if result.returncode != 0:
+                        raise RuntimeError(result.stderr.strip() or "paplay returned a non-zero exit code")
                 else:
                     print("Error synthesizing text")
             except Exception as e:
@@ -337,36 +478,64 @@ class LiveVoiceRecognizer:
       - audio data: uses whisper-cli to transcribe raw audio data (WAV/PCM)
     """
 
-    WHISPER_LIVE_DIR = os.path.join(os.path.dirname(__file__), "whisper_live")
-    WHISPER_LIB_DIR = os.path.join(WHISPER_LIVE_DIR, "lib")
-    WHISPER_MODEL_DIR = os.path.join(WHISPER_LIVE_DIR, "models")
-
     def __init__(self, model="tiny.en", capture_device=-1, threads=8, step=500, length=5000):
         self.model = model
         self.capture_device = capture_device
         self.threads = threads
         self.step = step
         self.length = length
+        self.whisper_live_dir = _resolve_whisper_live_dir()
+        self.whisper_lib_dir = os.path.join(self.whisper_live_dir, "lib")
+        self.whisper_model_dir = os.path.join(self.whisper_live_dir, "models")
         self._stream_process = None
         self._resolve_binaries()
 
     def _resolve_binaries(self):
         """Locate whisper-stream and whisper-cli binaries."""
-        stream_bin = os.path.join(self.WHISPER_LIVE_DIR, "whisper-stream")
-        cli_bin = os.path.join(self.WHISPER_LIVE_DIR, "whisper-cli")
+        stream_bin = os.path.join(self.whisper_live_dir, "whisper-stream")
+        cli_bin = os.path.join(self.whisper_live_dir, "whisper-cli")
+        missing = []
         if not os.path.exists(stream_bin):
-            raise FileNotFoundError(f"whisper-stream binary not found at {stream_bin}")
+            missing.append(stream_bin)
         if not os.path.exists(cli_bin):
-            raise FileNotFoundError(f"whisper-cli binary not found at {cli_bin}")
+            missing.append(cli_bin)
+        if missing:
+            raise RigelSetupError(
+                _build_setup_guide(
+                    "Live voice recognition binaries are missing.",
+                    [
+                        f"Ensure these binaries exist and are executable: {', '.join(missing)}",
+                        "Install optional voice assets package: pip install rigel-core[voice-assets]",
+                        "Or set RIGEL_WHISPER_LIVE_DIR to a directory containing whisper-stream and whisper-cli",
+                        "Install required runtime libraries (for example SDL2 and PulseAudio)",
+                        "Retry after restoring binaries",
+                    ],
+                )
+            )
         self.stream_bin = stream_bin
         self.cli_bin = cli_bin
 
     def _get_model_path(self):
         """Resolve model path from model name."""
         model_file = f"ggml-{self.model}.bin"
-        model_path = os.path.join(self.WHISPER_MODEL_DIR, model_file)
+        model_path = os.path.join(self.whisper_model_dir, model_file)
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model not found: {model_path}")
+            available = []
+            if os.path.isdir(self.whisper_model_dir):
+                for model_name in os.listdir(self.whisper_model_dir):
+                    if model_name.startswith("ggml-") and model_name.endswith(".bin"):
+                        available.append(model_name.replace("ggml-", "").replace(".bin", ""))
+            raise RigelSetupError(
+                _build_setup_guide(
+                    f"Live recognition model not found: {model_path}",
+                    [
+                        "Install optional voice assets package: pip install rigel-core[voice-assets]",
+                        "Or set RIGEL_WHISPER_LIVE_DIR to a directory containing models/",
+                        f"Use one of the available models: {', '.join(sorted(available)) if available else 'none'}",
+                        "Pass a valid model name to LiveVoiceRecognizer(model='tiny.en')",
+                    ],
+                )
+            )
         return model_path
 
     def _env(self):
@@ -377,7 +546,7 @@ class LiveVoiceRecognizer:
 
         env = os.environ.copy()
         existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{self.WHISPER_LIB_DIR}:{existing}" if existing else self.WHISPER_LIB_DIR
+        env["LD_LIBRARY_PATH"] = f"{self.whisper_lib_dir}:{existing}" if existing else self.whisper_lib_dir
         env.setdefault("SDL_AUDIODRIVER", "pulseaudio")
         return env
 
@@ -464,7 +633,16 @@ class LiveVoiceRecognizer:
             timeout=120,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"whisper-cli failed: {result.stderr}")
+            raise RuntimeError(
+                _build_setup_guide(
+                    "whisper-cli failed during transcription.",
+                    [
+                        "Verify whisper shared libraries are present in lib/",
+                        "Verify model and audio input are valid",
+                        "Check that PulseAudio/SDL2 runtime dependencies are installed",
+                    ],
+                ) + f"\nwhisper-cli stderr: {result.stderr.strip()}"
+            )
         return result.stdout.strip()
 
     def transcribe_stream(self, audio_data: bytes, extra_args=None):
@@ -581,4 +759,3 @@ def clone_voice(mp3_path, voice_name, language="English (U.S.)", whisper_model="
 if __name__ == "__main__":
     interpreter_location = subprocess.check_output(["which", "python"], text=True).strip()
     print(f"Python interpreter location: {interpreter_location}")
-

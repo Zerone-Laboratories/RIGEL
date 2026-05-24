@@ -36,6 +36,8 @@ import time
 import re
 import signal
 import json
+import chromadb
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
 # Import OSTools class if it's available
 try:
@@ -56,6 +58,70 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
 TOOL_REGISTRY = {}  # Will be populated after tool definitions
+_TOOL_INDEX_COLLECTION = None
+_TOOL_INDEX_READY = False
+_TOOL_INDEX_LOCK = threading.Lock()
+_CHROMA_DB_PATH = os.path.expanduser("~/.rigel_tools/chroma_db")
+
+
+def _get_tool_index_collection():
+    global _TOOL_INDEX_COLLECTION
+    if _TOOL_INDEX_COLLECTION is not None:
+        return _TOOL_INDEX_COLLECTION
+
+    os.makedirs(_CHROMA_DB_PATH, exist_ok=True)
+    client = chromadb.PersistentClient(
+        path=_CHROMA_DB_PATH,
+        settings=chromadb.config.Settings(anonymized_telemetry=False)
+    )
+    _TOOL_INDEX_COLLECTION = client.get_or_create_collection(
+        name="tool_index",
+        embedding_function=DefaultEmbeddingFunction(),
+        metadata={"hnsw:space": "cosine"}
+    )
+    return _TOOL_INDEX_COLLECTION
+
+
+def _refresh_tool_index() -> None:
+    global _TOOL_INDEX_READY
+    collection = _get_tool_index_collection()
+
+    tool_ids = []
+    documents = []
+    metadatas = []
+    for name, func in TOOL_REGISTRY.items():
+        doc = (func.__doc__ or "").strip()
+        description = " ".join(line.strip() for line in doc.splitlines() if line.strip())
+        if not description:
+            description = "No description available."
+
+        tool_ids.append(name)
+        documents.append(description)
+        metadatas.append({"name": name, "description": description})
+
+    if not tool_ids:
+        _TOOL_INDEX_READY = True
+        return
+
+    try:
+        collection.upsert(ids=tool_ids, documents=documents, metadatas=metadatas)
+    except Exception:
+        try:
+            collection.delete(where={})
+        except Exception:
+            pass
+        collection.add(ids=tool_ids, documents=documents, metadatas=metadatas)
+
+    _TOOL_INDEX_READY = True
+
+
+def _ensure_tool_index_ready() -> None:
+    global _TOOL_INDEX_READY
+    if _TOOL_INDEX_READY:
+        return
+    with _TOOL_INDEX_LOCK:
+        if not _TOOL_INDEX_READY:
+            _refresh_tool_index()
 
 # HELPERS--------------------------------------
 
@@ -517,6 +583,43 @@ def show_available_commands() -> Dict[str, Any]:
         _tool_message = _tool_message[:247] + '...'
     trigger_notification(f'Tool executed: show_available_commands', _tool_message)
     return _tool_result
+
+
+@mcp.tool()
+def search_tools(query: str, top_k: int = 10) -> Dict[str, Any]:
+    """
+    Search tools by semantic similarity.
+    Returns the top matching tool names with short descriptions.
+    """
+    if not query:
+        return {"success": False, "error": "Query must be provided."}
+
+    try:
+        _ensure_tool_index_ready()
+        collection = _get_tool_index_collection()
+        result = collection.query(query_texts=[query], n_results=max(1, int(top_k)))
+        ids = result.get("ids", [[]])[0]
+        metadatas = result.get("metadatas", [[]])[0]
+        distances = result.get("distances", [[]])[0]
+
+        matches = []
+        for idx, tool_id in enumerate(ids):
+            metadata = metadatas[idx] if idx < len(metadatas) else {}
+            distance = distances[idx] if idx < len(distances) else None
+            if distance is None:
+                score = None
+            else:
+                score = 1.0 / (1.0 + float(distance))
+
+            matches.append({
+                "name": tool_id,
+                "score": score,
+                "description": metadata.get("description", "")
+            })
+
+        return {"success": True, "query": query, "matches": matches}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @mcp.tool()
 def create_file(directory, file_name) -> Dict[str, Any]:
@@ -3515,7 +3618,8 @@ def kill_gui_window(pid: int) -> Dict[str, Any]:
 @mcp.tool()
 def initialize_auxiliary_compute_unit() -> Dict[str, Any]:
     """
-    Initialize the ztOS Auxiliary Compute Unit. 
+    Initialize the ztOS Auxiliary Compute Interface.
+    This method will attempt to initialize the ACI or Auxiliary Compute interface 
     """
     try:
         # os.system(adb kill-server && scrcpy  --turn-screen-off --max-size 1024&)
@@ -3525,12 +3629,70 @@ def initialize_auxiliary_compute_unit() -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+@mcp.tool()
+def open_default_apps(app_type: str, target: str = None) -> Dict[str, Any]:
+    """
+    Open the KDE system default applications (file browser, web browser, code editor, etc.).
+    Can also navigate to a webpage if the browser is opened.
+    
+    Args:
+        app_type: The type of application to open (e.g., "browser", "file_manager", "editor", "terminal", "email").
+        target: Optional target (URL for browser, directory path for file manager, file path for editor).
+    """
+    import subprocess
+    import os
+    
+    cmd = []
+    
+    if app_type == "browser":
+        url = target if target else "about:blank"
+        cmd = ["xdg-open", url]
+    elif app_type == "file_manager":
+        path = target if target else os.path.expanduser("~")
+        cmd = ["xdg-open", path]
+    elif app_type == "editor":
+        if target:
+            cmd = ["xdg-open", target]
+        else:
+            cmd = ["kate"]  # KDE's default editor
+    elif app_type == "terminal":
+        cmd = ["konsole"]  # KDE's default terminal
+        if target:
+            cmd.extend(["--workdir", target])
+    elif app_type == "email":
+        mailto = f"mailto:{target}" if target else "mailto:"
+        cmd = ["xdg-open", mailto]
+    else:
+        if target:
+            cmd = ["xdg-open", target]
+        else:
+            _tool_result = {"success": False, "error": f"Unknown app_type '{app_type}' and no target provided."}
+            trigger_notification(f'Tool executed: open_default_apps', str(_tool_result))
+            return _tool_result
+
+    try:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _tool_result = {"success": True, "message": f"Opened {app_type}" + (f" with target {target}" if target else "")}
+        try:
+            _tool_message = json.dumps(_tool_result)
+        except Exception:
+            _tool_message = str(_tool_result)
+        if len(_tool_message) > 250:
+            _tool_message = _tool_message[:247] + '...'
+        trigger_notification(f'Tool executed: open_default_apps', _tool_message)
+        return _tool_result
+    except Exception as e:
+        _tool_result = {"success": False, "error": str(e)}
+        trigger_notification(f'Tool executed: open_default_apps error', str(_tool_result))
+        return _tool_result
+
 if __name__ == "__main__":
     # Register all tools for REST API
     TOOL_REGISTRY.update({
         # Original tools
         "current_time": current_time,
         "show_available_commands": show_available_commands,
+        "search_tools": search_tools,
         # "create_file": create_file,
         # "create_folder": create_folder,
         # LEGACY TOOLS ############
@@ -3540,7 +3702,7 @@ if __name__ == "__main__":
         # "kill_application": kill_application,
         # "kill_pid": kill_pid,
         ###########################
-        "Initialize Zerone Laboratories Auxiliary Compute Interface": initialize_auxiliary_compute_unit,
+        "initialize_auxiliary_compute_interface": initialize_auxiliary_compute_unit,
         "send_dbus_notification": send_dbus_notification,
         "list_usb_devices": check_usb_devices,
         "network_status": check_network_status,
@@ -3572,6 +3734,7 @@ if __name__ == "__main__":
         "get_wifi_networks": get_wifi_networks,
         "connect_wifi": connect_wifi,
         "open_system_settings": open_system_settings,
+        "open_default_apps": open_default_apps,
         "get_display_info": get_display_info,
         "set_display_resolution": set_display_resolution,
         "run_bash_command": run_bash_command,
@@ -3608,6 +3771,7 @@ if __name__ == "__main__":
         # "kill_agent": kill_agent,
         # "restart_agent": restart_agent,
     })
+    _refresh_tool_index()
     #"browser_interactions": browser_agent_task,  [DOESNT WORK WITHOUT A OPENAI KEY]
 
     # Start REST API in background thread

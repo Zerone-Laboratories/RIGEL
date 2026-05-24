@@ -16,7 +16,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
-from core.rigel import RigelOllama, RigelGroq
+from core.rigel import RigelOllama, RigelGroq, RigelUnifiedrouter, RigelDeepseek
 from core.extensions.rigel_claude_code_integration import RigelClaude
 import os
 _RIGEL_CLAUDE_ENABLED = os.getenv("RIGEL_CLAUDE_ENABLED", "false").lower() == "true"
@@ -29,6 +29,7 @@ from core.logger import SysLog
 from core.synth_n_recog import Synthesizer, Recognizer, LiveVoiceRecognizer
 from core.vision import VisionEngine, get_vision_engine
 from core.rdb import DBConn
+from helpers.vector_cache import VectorCache
 import asyncio
 from version import VERSION
 import concurrent.futures
@@ -36,6 +37,7 @@ import tempfile
 import json
 import re
 import uuid
+import time
 from typing import Optional
 from datetime import datetime
 import urllib.request
@@ -168,6 +170,7 @@ _coding_agent_background_task = None  # {"query": str, "start_time": str, "threa
 _coding_agent = None  # lazy-init RigelClaude singleton
 browser_state = {"playwright": None, "browser": None, "context": None, "page": None}
 session_vector_db = None
+_vector_cache = None  # type: Optional[VectorCache]
 synthesis_queue = queue.Queue()
 synthesis_worker_thread = None
 system_prompt = _get_env_system_prompt(
@@ -175,6 +178,13 @@ system_prompt = _get_env_system_prompt(
 You are RIGEL, a helpful assistant developed by Zerone Laboratories.
 """
 )
+
+def _get_vector_cache() -> VectorCache:
+    """Lazy singleton for the NL vector cache."""
+    global _vector_cache
+    if _vector_cache is None:
+        _vector_cache = VectorCache()
+    return _vector_cache
 
 class _Signal:
 
@@ -398,6 +408,42 @@ class RigelServer(object):
             pattern = r'\[CALL[\s_\-]*TOOL[\s_\-]*AGENT\s*:\s*.+?\]'
             return bool(re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL))
 
+        # Backward-compatible support for optional confidence sent as JSON query payload:
+        # {"query":"...", "voice_recognition_confidence":0.42}
+        confidence = None
+        original_query = query
+        try:
+            parsed_query = json.loads(query) if isinstance(query, str) else None
+            if isinstance(parsed_query, dict):
+                parsed_confidence = parsed_query.get("voice_recognition_confidence")
+                if parsed_confidence is not None:
+                    confidence = float(parsed_confidence)
+                parsed_text = parsed_query.get("query")
+                if isinstance(parsed_text, str) and parsed_text.strip():
+                    query = parsed_text
+        except Exception:
+            query = original_query
+
+        # If confidence wasn't supplied, infer it from the most recent RecognizeAudio result
+        # when this NL query matches that just-recognized text.
+        if confidence is None and recognizer is not None:
+            try:
+                recent_text = (getattr(recognizer, "last_text", "") or "").strip()
+                recent_conf = getattr(recognizer, "last_confidence", None)
+                recent_ts = float(getattr(recognizer, "last_transcribe_at", 0.0) or 0.0)
+                if (
+                    recent_conf is not None
+                    and recent_text
+                    and query.strip() == recent_text
+                    and (time.time() - recent_ts) <= 30.0
+                ):
+                    confidence = float(recent_conf)
+            except Exception:
+                pass
+
+        if confidence is not None and confidence < 0.5:
+            return "Voice Recognition Confidence too low, Please rephrase the query"
+
         syslog.info(f"RigelNaturalLanguage called with query: {query[:100]}...")
         persona_profile = """
         Your personality template is,
@@ -452,9 +498,22 @@ class RigelServer(object):
             ("system", agent_system_prompt),
             ("human", f"{query}")
         ]
-        response = rigel.inference_with_memory(messages=messages, thread_id=id)
-        decision_text = response.content if hasattr(response, "content") else str(response)
-        decision_text = decision_text.strip()
+        # --- VECTOR CACHE: memory_agent ---
+        _vc = _get_vector_cache()
+        _cached_decision = _vc.lookup(query, tag="memory_agent")
+        if _cached_decision:
+            syslog.info("[VectorCache] tripped")
+            syslog.info("[VECTOR CACHE HIT] memory_agent — skipping memory agent LLM")
+            decision_text = _cached_decision
+        else:
+            response = rigel.inference_with_memory(messages=messages, thread_id=id)
+            decision_text = response.content if hasattr(response, "content") else str(response)
+            decision_text = decision_text.strip()
+            # Submit to the background classifier queue — non-blocking.
+            # The worker thread will classify the query and only write to
+            # VectorCache if it is standalone (context-independent).
+            from helpers.standalone_classifier import get_cache_writer_queue  # noqa: PLC0415
+            get_cache_writer_queue().submit(query, decision_text, tag="memory_agent")
         syslog.info(f"Memory decision text: {decision_text}")
 
         output = "[CONTEXT: NULL]"
@@ -706,7 +765,12 @@ class RigelServer(object):
 
     def QueryWithTools(self, query):
         tool_engine = os.getenv("TOOL_CALL_ENGINE", "ollama").lower()
-        default_tool_model = "qwen3:0.6b" if tool_engine == "ollama" else os.getenv("TOOL_CALL_GROQ_MODEL", "qwen/qwen3-32b")
+        if tool_engine == "ollama":
+            default_tool_model = "qwen3:0.6b"
+        elif tool_engine == "deepseek":
+            default_tool_model = os.getenv("TOOL_CALL_DEEPSEEK_MODEL", os.getenv("DEEPSEEK_MODEL", "deepseek-v3"))
+        else:
+            default_tool_model = os.getenv("TOOL_CALL_GROQ_MODEL", "qwen/qwen3-32b")
         tool_model = os.getenv("TOOL_CALL_MODEL", default_tool_model)
         tool_temp = float(os.getenv("TOOL_TEMPERATURE", os.getenv("TEMPERATURE", "0.0")))
 
@@ -722,11 +786,12 @@ class RigelServer(object):
                 },
             )
 
-        rigel_agent = (
-            RigelGroq(model_name=tool_model, temp=tool_temp, mcp_endpoint=tool_mcp)
-            if tool_engine == "groq"
-            else RigelOllama(model_name=tool_model, mcp_endpoint=tool_mcp)
-        )
+        if tool_engine == "groq":
+            rigel_agent = RigelGroq(model_name=tool_model, temp=tool_temp, mcp_endpoint=tool_mcp)
+        elif tool_engine == "deepseek":
+            rigel_agent = RigelDeepseek(model_name=tool_model, temp=tool_temp, mcp_endpoint=tool_mcp)
+        else:
+            rigel_agent = RigelOllama(model_name=tool_model, mcp_endpoint=tool_mcp)
 
         syslog.info(f"QueryWithTools called with query: {query}...")
         print(f"\n\n\n\nTOOL CALL QUERY {query}\n\n\n\n")
@@ -1027,8 +1092,10 @@ class RigelServer(object):
                 recognizer = Recognizer(model=model)
             elif hasattr(recognizer, 'model_name') and recognizer.model_name != model:
                 recognizer = Recognizer(model=model)
-            transcription = recognizer.transcribe(resolved_audio_file_path)
-            syslog.info(f"Transcription completed: {transcription[:100]}...")
+            transcription, confidence = recognizer.transcribe_with_confidence(resolved_audio_file_path)
+            syslog.info(
+                f"Transcription completed with confidence={confidence:.4f}: {transcription[:100]}..."
+            )
 
             return transcription
 
@@ -1305,6 +1372,8 @@ if __name__ == "__main__":
               You can start it by typing
               python core/mcp/rigel_tools_server.py
               """)
+        
+    
 
     inference_engine = os.environ.get("NORMAL_CHAT_ENGINE", os.environ.get("INFERENCE_ENGINE", "groq")).lower()
     general_model = os.getenv("NORMAL_CHAT_MODEL") or os.getenv("GENERAL_LLM_MODEL")
@@ -1312,6 +1381,10 @@ if __name__ == "__main__":
         model_to_use = general_model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         rigel = RigelGroq(model_name=model_to_use, mcp_endpoint=default_mcp)
         print("RIGEL initialized with GROQ backend")
+    elif inference_engine == "deepseek":
+        model_to_use = general_model or os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+        rigel = RigelDeepseek(model_name=model_to_use, mcp_endpoint=default_mcp)
+        print("RIGEL initialized with DEEPSEEK backend")
     else:
         model_to_use = general_model or os.getenv("OLLAMA_MODEL", "llama3.2")
         rigel = RigelOllama(model_name=model_to_use, mcp_endpoint=default_mcp)

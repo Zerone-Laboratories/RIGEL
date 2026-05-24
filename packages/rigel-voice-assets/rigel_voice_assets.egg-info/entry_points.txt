@@ -1,0 +1,2 @@
+[console_scripts]
+rigel-voice-assets-guide = rigel_voice_assets.__main__:main

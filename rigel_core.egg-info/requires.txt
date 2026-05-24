@@ -38,3 +38,6 @@ pillow==11.1.0
 langchain-openai
 langchain-deepseek
 pexpect
+
+[voice-assets]
+rigel-voice-assets>=5.0.0

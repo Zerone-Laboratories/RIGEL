@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=69", "wheel", "build"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rigel-engine-core"
+dynamic = ["version"]
+description = "Rigel core library with multi-LLM orchestration, voice synthesis, and speech recognition."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+authors = [
+  { name = "Zerone Laboratories Systems" }
+]
+dependencies = [
+  "langchain==0.3.25",
+  "langchain-core==0.3.65",
+  "langchain-groq==0.3.2",
+  "langchain-mcp-adapters==0.1.7",
+  "langchain-ollama==0.3.3",
+  "langchain-text-splitters==0.3.8",
+  "langgraph==0.4.8",
+  "langgraph-checkpoint==2.1.0",
+  "langgraph-prebuilt==0.2.2",
+  "langsmith==0.3.45",
+  "groq==0.28.0",
+  "ollama==0.5.1",
+  "mcp==1.9.4",
+  "chromadb==1.0.12",
+  "pypdf==5.6.0",
+  "numpy",
+  "fastapi==0.115.9",
+  "uvicorn==0.34.3",
+  "starlette==0.45.3",
+  "pydantic==2.11.7",
+  "pydantic-core==2.33.2",
+  "pydbus==0.6.0",
+  "PyGObject==3.52.3",
+  "colorama==0.4.6",
+  "rich==14.0.0",
+  "python-dotenv==1.1.0",
+  "PyYAML==6.0.2",
+  "requests==2.32.4",
+  "httpx==0.28.1",
+  "typing_extensions==4.14.0",
+  "SQLAlchemy==2.0.41",
+  "packaging==24.2",
+  "tqdm==4.67.1",
+  "openai-whisper",
+  "torch==2.10.0",
+  "playwright==1.49.1",
+  "pillow==11.1.0",
+  "langchain-openai",
+  "langchain-deepseek",
+  "pexpect"
+]
+
+[project.optional-dependencies]
+voice-assets = ["rigel-voice-assets>=5.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/zeronelabs/rigel"
+Repository = "https://github.com/zeronelabs/rigel"
+
+[tool.setuptools.dynamic]
+version = { attr = "version.VERSION" }
+
+[tool.setuptools]
+include-package-data = true
+py-modules = ["version"]
+
+[tool.setuptools.packages.find]
+include = ["core", "core.*"]
+
+[tool.setuptools.package-data]
+core = [
+  "synthesis_assets/*.json",
+  "synthesis_assets/VoiceCloning/*.py",
+  "synthesis_assets/VoiceCloning/*.ipynb",
+  "mcp/skills/*/SKILL.md"
+]
+
+[tool.setuptools.exclude-package-data]
+core = [
+  "synthesis_assets/*.onnx",
+  "whisper_live/*",
+  "whisper_live/**/*"
+]
