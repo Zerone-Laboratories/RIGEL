@@ -1,3 +1,59 @@
+Metadata-Version: 2.4
+Name: rigel-core
+Version: 5.0.0
+Summary: Rigel core library with multi-LLM orchestration, voice synthesis, and speech recognition.
+Author: Zerone Laboratories Systems
+License: AGPL-3.0-or-later
+Project-URL: Homepage, https://github.com/zeronelabs/rigel
+Project-URL: Repository, https://github.com/zeronelabs/rigel
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+License-File: NOTICE
+Requires-Dist: langchain==0.3.25
+Requires-Dist: langchain-core==0.3.65
+Requires-Dist: langchain-groq==0.3.2
+Requires-Dist: langchain-mcp-adapters==0.1.7
+Requires-Dist: langchain-ollama==0.3.3
+Requires-Dist: langchain-text-splitters==0.3.8
+Requires-Dist: langgraph==0.4.8
+Requires-Dist: langgraph-checkpoint==2.1.0
+Requires-Dist: langgraph-prebuilt==0.2.2
+Requires-Dist: langsmith==0.3.45
+Requires-Dist: groq==0.28.0
+Requires-Dist: ollama==0.5.1
+Requires-Dist: mcp==1.9.4
+Requires-Dist: chromadb==1.0.12
+Requires-Dist: pypdf==5.6.0
+Requires-Dist: numpy
+Requires-Dist: fastapi==0.115.9
+Requires-Dist: uvicorn==0.34.3
+Requires-Dist: starlette==0.45.3
+Requires-Dist: pydantic==2.11.7
+Requires-Dist: pydantic-core==2.33.2
+Requires-Dist: pydbus==0.6.0
+Requires-Dist: PyGObject==3.52.3
+Requires-Dist: colorama==0.4.6
+Requires-Dist: rich==14.0.0
+Requires-Dist: python-dotenv==1.1.0
+Requires-Dist: PyYAML==6.0.2
+Requires-Dist: requests==2.32.4
+Requires-Dist: httpx==0.28.1
+Requires-Dist: typing_extensions==4.14.0
+Requires-Dist: SQLAlchemy==2.0.41
+Requires-Dist: packaging==24.2
+Requires-Dist: tqdm==4.67.1
+Requires-Dist: openai-whisper
+Requires-Dist: torch==2.10.0
+Requires-Dist: playwright==1.49.1
+Requires-Dist: pillow==11.1.0
+Requires-Dist: langchain-openai
+Requires-Dist: langchain-deepseek
+Requires-Dist: pexpect
+Provides-Extra: voice-assets
+Requires-Dist: rigel-voice-assets>=5.0.0; extra == "voice-assets"
+Dynamic: license-file
+
 # RIGEL - Open Source AI Assistant & Multi-LLM Agentic Engine
 
 <div align="center">
@@ -190,16 +246,6 @@ source .venv/bin/activate  # On Linux/macOS
 # or
 .venv\Scripts\activate     # On Windows
 pip install -r requirements.txt
-```
-
-For PyPI installs, use:
-
-```bash
-# Lightweight core package (no bundled large voice binaries/models)
-pip install rigel-engine-core
-
-# Core + optional voice asset locator package
-pip install "rigel-engine-core[voice-assets]"
 ```
 
 4. For voice features, install system dependencies:

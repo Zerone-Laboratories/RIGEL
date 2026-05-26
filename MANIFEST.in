@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+include NOTICE
+include version.py
+
+recursive-include core/synthesis_assets *.json *.py *.ipynb
+recursive-include core/mcp/skills *.md
+exclude core/synthesis_assets/*.onnx
+prune core/whisper_live
+
+global-exclude __pycache__ *.py[cod]

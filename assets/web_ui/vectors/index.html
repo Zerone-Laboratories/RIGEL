@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>RIGEL Table DB Manager</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, sans-serif; margin: 14px; line-height: 1.3; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    .muted { opacity: 0.8; font-size: 13px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin: 10px 0; }
+    label { display: grid; gap: 4px; font-size: 13px; }
+    input, textarea, button { font: inherit; }
+    input, textarea, select { border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; padding: 7px; background: transparent; }
+    textarea { min-height: 70px; resize: vertical; }
+    button { border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; padding: 7px 10px; background: rgba(127,127,127,0.12); cursor: pointer; }
+    button:hover { background: rgba(127,127,127,0.18); }
+    .grow { flex: 1; min-width: 220px; }
+    .narrow { width: 130px; }
+    .panel { border: 1px solid rgba(127,127,127,0.35); border-radius: 8px; padding: 10px; margin: 12px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid rgba(127,127,127,0.25); padding: 8px; vertical-align: top; text-align: left; }
+    th { font-size: 13px; opacity: 0.85; }
+    td textarea { width: 100%; min-height: 52px; }
+    td .mini { min-height: 40px; }
+    .actions { display: flex; gap: 6px; }
+    .meta { margin: 8px 0; font-size: 12px; opacity: 0.85; }
+    pre { border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; padding: 10px; max-height: 180px; overflow: auto; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>RIGEL Table Database Manager</h1>
+  <div class="muted">On-the-spot CRUD for vector collections as table rows (id, text, metadata). Text search uses the same embedding model.</div>
+
+  <div class="panel">
+    <div class="row">
+      <label class="grow">Base URL
+        <input id="baseUrl" placeholder="http://localhost:8000" />
+      </label>
+      <label class="grow">X-Admin-Key
+        <input id="adminKey" placeholder="rigel_admin_..." autocomplete="off" />
+      </label>
+      <label class="grow">Database / Collection
+        <input id="collection" placeholder="ui_vectors" list="dbList" />
+      </label>
+      <datalist id="dbList"></datalist>
+      <button id="refreshDbsBtn" type="button">List DBs</button>
+    </div>
+
+    <div class="row">
+      <label class="narrow">Limit<input id="limit" value="50" /></label>
+      <label class="narrow">Offset<input id="offset" value="0" /></label>
+      <label class="grow">Keyword Filter (contains)
+        <input id="keyword" placeholder="filter text in record body" />
+      </label>
+      <button id="browseBtn" type="button">Browse</button>
+    </div>
+
+    <div class="row">
+      <label class="grow">Semantic Search Text
+        <input id="semanticText" placeholder="find records semantically similar to this text" />
+      </label>
+      <label class="narrow">Top K<input id="topK" value="10" /></label>
+      <button id="semanticBtn" type="button">Semantic Search</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 8px; font-size:15px;">Add Record</h3>
+    <div class="row">
+      <label class="grow">ID (optional)
+        <input id="newId" placeholder="leave blank to auto-generate" />
+      </label>
+      <label class="grow">Text
+        <textarea id="newText" placeholder="record text"></textarea>
+      </label>
+      <label class="grow">Metadata JSON
+        <textarea id="newMeta" placeholder='{"source":"manual"}'></textarea>
+      </label>
+      <button id="addBtn" type="button">Add</button>
+    </div>
+  </div>
+
+  <div class="meta" id="meta">Ready.</div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 170px;">ID</th>
+        <th>Text</th>
+        <th style="width: 260px;">Metadata (JSON)</th>
+        <th style="width: 120px;">Score</th>
+        <th style="width: 130px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <h3 style="font-size:14px; margin:12px 0 6px;">Last Response</h3>
+  <pre id="raw">(none)</pre>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let currentRows = [];
+
+  function baseUrl() { return (($('baseUrl').value || '').trim() || window.location.origin).replace(/\/+$/, ''); }
+  function collection() { return ($('collection').value || 'ui_vectors').trim() || 'ui_vectors'; }
+
+  function showMeta(text) { $('meta').textContent = text; }
+  function showRaw(obj) { $('raw').textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2); }
+
+  function parseJsonOrEmptyObject(text) {
+    const v = (text || '').trim();
+    if (!v) return {};
+    const parsed = JSON.parse(v);
+    if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) throw new Error('Metadata must be a JSON object');
+    return parsed;
+  }
+
+  async function api(path, opts = {}) {
+    const url = `${baseUrl()}${path}`;
+    const headers = Object.assign({}, opts.headers || {});
+    const adminKey = ($('adminKey').value || '').trim();
+    if (adminKey) headers['X-Admin-Key'] = adminKey;
+
+    showMeta(`→ ${opts.method || 'GET'} ${url}`);
+    const start = performance.now();
+    const res = await fetch(url, Object.assign({}, opts, { headers }));
+    const ms = Math.round(performance.now() - start);
+    const text = await res.text();
+
+    let data;
+    try { data = JSON.parse(text); } catch (_) { data = text; }
+    showMeta(`← ${res.status} ${res.statusText} (${ms}ms)`);
+    showRaw(data);
+
+    if (!res.ok) {
+      const detail = data && data.detail ? data.detail : String(data);
+      throw new Error(detail);
+    }
+
+    return data;
+  }
+
+  function esc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderRows(rows, scoreFields = null) {
+    currentRows = rows || [];
+    const tbody = $('rows');
+    if (!currentRows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No records.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = currentRows.map((r, idx) => {
+      const score = scoreFields ? (r[scoreFields] ?? r.cosine_similarity ?? r.distance ?? '') : (r.cosine_similarity ?? r.distance ?? '');
+      return `
+        <tr data-idx="${idx}">
+          <td><code>${esc(r.id)}</code></td>
+          <td><textarea class="textCell">${esc(r.text || '')}</textarea></td>
+          <td><textarea class="metaCell mini">${esc(JSON.stringify(r.metadata || {}, null, 2))}</textarea></td>
+          <td>${esc(score)}</td>
+          <td>
+            <div class="actions">
+              <button class="saveBtn" type="button">Save</button>
+              <button class="delBtn" type="button">Delete</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    tbody.querySelectorAll('.saveBtn').forEach((btn) => btn.addEventListener('click', onSaveRow));
+    tbody.querySelectorAll('.delBtn').forEach((btn) => btn.addEventListener('click', onDeleteRow));
+  }
+
+  async function loadDatabases() {
+    const data = await api('/vectors/api/databases?include_counts=true');
+    const list = $('dbList');
+    list.innerHTML = '';
+    (data.databases || []).forEach((d) => {
+      const opt = document.createElement('option');
+      opt.value = d.name;
+      list.appendChild(opt);
+    });
+    return data;
+  }
+
+  async function browse() {
+    const c = encodeURIComponent(collection());
+    const limit = encodeURIComponent(($('limit').value || '50').trim());
+    const offset = encodeURIComponent(($('offset').value || '0').trim());
+    const q = encodeURIComponent(($('keyword').value || '').trim());
+    const path = `/vectors/api/records?collection=${c}&limit=${limit}&offset=${offset}&q=${q}`;
+    const data = await api(path);
+    renderRows(data.records || []);
+  }
+
+  async function semanticSearch() {
+    const body = {
+      collection: collection(),
+      text: ($('semanticText').value || '').trim(),
+      top_k: Number(($('topK').value || '10').trim() || 10),
+    };
+    const data = await api('/vectors/api/records/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    renderRows(data.records || [], 'cosine_similarity');
+  }
+
+  async function addRecord() {
+    const body = {
+      id: ($('newId').value || '').trim() || null,
+      text: ($('newText').value || '').trim(),
+      metadata: parseJsonOrEmptyObject($('newMeta').value),
+      collection: collection(),
+    };
+    await api('/vectors/api/records', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    $('newId').value = '';
+    $('newText').value = '';
+    $('newMeta').value = '';
+    await browse();
+  }
+
+  async function onSaveRow(e) {
+    const tr = e.target.closest('tr');
+    const idx = Number(tr.getAttribute('data-idx'));
+    const row = currentRows[idx];
+    if (!row) return;
+
+    const text = tr.querySelector('.textCell').value;
+    const metadataText = tr.querySelector('.metaCell').value;
+    const metadata = parseJsonOrEmptyObject(metadataText);
+
+    await api(`/vectors/api/records/${encodeURIComponent(row.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, metadata, collection: collection() }),
+    });
+    await browse();
+  }
+
+  async function onDeleteRow(e) {
+    const tr = e.target.closest('tr');
+    const idx = Number(tr.getAttribute('data-idx'));
+    const row = currentRows[idx];
+    if (!row) return;
+    if (!confirm(`Delete record ${row.id}?`)) return;
+
+    await api(`/vectors/api/records/${encodeURIComponent(row.id)}?collection=${encodeURIComponent(collection())}`, {
+      method: 'DELETE',
+    });
+    await browse();
+  }
+
+  async function tryAutoLoadAdminKey() {
+    try {
+      const res = await fetch(`${baseUrl()}/ui-admin-key`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.admin_key && !$('adminKey').value) $('adminKey').value = data.admin_key;
+    } catch (_) {}
+  }
+
+  $('refreshDbsBtn').addEventListener('click', async () => { try { await loadDatabases(); } catch (e) { alert(String(e)); } });
+  $('browseBtn').addEventListener('click', async () => { try { await browse(); } catch (e) { alert(String(e)); } });
+  $('semanticBtn').addEventListener('click', async () => { try { await semanticSearch(); } catch (e) { alert(String(e)); } });
+  $('addBtn').addEventListener('click', async () => { try { await addRecord(); } catch (e) { alert(String(e)); } });
+
+  $('baseUrl').value = window.location.origin;
+  $('collection').value = 'ui_vectors';
+
+  (async () => {
+    await tryAutoLoadAdminKey();
+    try { await loadDatabases(); } catch (_) {}
+    try { await browse(); } catch (_) {}
+  })();
+</script>
+</body>
+</html>

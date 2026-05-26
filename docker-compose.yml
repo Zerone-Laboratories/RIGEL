@@ -6,6 +6,9 @@ services:
         SKIP_PYTHON_DEPS: ${SKIP_PYTHON_DEPS:-false}
     image: rigel:latest  # Tag the built image
     network_mode: host  # Share host network to access host ollama
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
       - .env
     environment:

@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
+import numpy as np
 import asyncio
 import threading
 import tempfile
@@ -33,16 +34,19 @@ import hashlib
 import time
 import re
 import secrets
+import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
-from core.rigel import RigelOllama, RigelGroq
+from core.rigel import RigelOllama, RigelGroq, RigelUnifiedrouter, RigelDeepseek
 from core.extensions.rigel_claude_code_integration import RigelClaude
 
 _RIGEL_CLAUDE_ENABLED = os.getenv("RIGEL_CLAUDE_ENABLED", "false").lower() == "true"
 from core.rdb import DBConn
 from core.logger import SysLog
+from helpers.vector_cache import VectorCache
 from core.synth_n_recog import Synthesizer, Recognizer, LiveVoiceRecognizer
 from core.vision import get_vision_engine
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -225,7 +229,7 @@ def get_tenant_info(api_key: str) -> Optional[Dict[str, Any]]:
         "daily_quota": row[5]
     }
 
-def check_rate_limit(tenant_id: int, endpoint: str) -> bool:
+def check_rate_limit(tenant_id: int, endpoint: str, limit_override: Optional[int] = None) -> bool:
     """Check if tenant has exceeded rate limits"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -246,7 +250,7 @@ def check_rate_limit(tenant_id: int, endpoint: str) -> bool:
         "enterprise": 300
     }
     
-    limit = rate_limits.get(plan, 10)
+    limit = limit_override if limit_override is not None else rate_limits.get(plan, 10)
     
     # Check current minute
     current_time = datetime.now()
@@ -364,12 +368,37 @@ async def require_api_key(x_api_key: str = Header(None, alias="X-API-Key")) -> D
     
     return tenant_info
 
-async def check_quotas_and_limits(tenant_info: Dict[str, Any], endpoint: str) -> Dict[str, Any]:
+def _is_localhost_client(client_host: Optional[str]) -> bool:
+    if not client_host:
+        return False
+    return (
+        client_host in {"127.0.0.1", "::1", "localhost"}
+        or client_host.startswith("127.")
+        or client_host.startswith("::ffff:127.")
+    )
+
+
+async def check_quotas_and_limits(
+    tenant_info: Dict[str, Any],
+    endpoint: str,
+    client_host: Optional[str] = None,
+) -> Dict[str, Any]:
     """Check rate limits and usage quotas"""
     tenant_id = tenant_info["tenant_id"]
     
+    local_client = _is_localhost_client(client_host)
+    disable_local_limit = os.getenv("RIGEL_DISABLE_LOCALHOST_RATE_LIMIT", "false").lower() == "true"
+    localhost_limit_env = os.getenv("RIGEL_LOCALHOST_RATE_LIMIT_PER_MIN", "").strip()
+    localhost_limit_override: Optional[int] = None
+    if local_client and localhost_limit_env.isdigit():
+        localhost_limit_override = int(localhost_limit_env)
+
     # Check rate limiting
-    if not check_rate_limit(tenant_id, endpoint):
+    if not (local_client and disable_local_limit) and not check_rate_limit(
+        tenant_id,
+        endpoint,
+        limit_override=localhost_limit_override,
+    ):
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Please slow down your requests."
@@ -392,6 +421,9 @@ recognizer = None
 live_recognizer = None
 vision_engine = None
 session_vector_db = None
+_vector_cache: Optional[VectorCache] = None
+ui_vectors_collection = None
+ui_embedding_function = None
 tools_rigel = None
 tools_rigel_signature = None
 _coding_agent_background_task = None  # {"query": str, "start_time": str, "thread": Thread}
@@ -499,6 +531,7 @@ class QueryWithMemoryRequest(BaseModel):
 class NaturalLanguageRequest(BaseModel):
     query: str
     id: Optional[str] = "default"
+    voice_recognition_confidence: Optional[float] = None
 
 class AnalyzeImageRequest(BaseModel):
     image_path: str
@@ -560,6 +593,48 @@ class InferenceEngineRequest(BaseModel):
 class InferenceEngineResponse(BaseModel):
     engine: str
     status: str
+
+class VectorAddRequest(BaseModel):
+    id: str
+    vector: List[float]
+    document: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    collection: Optional[str] = "ui_vectors"
+
+class VectorSearchRequest(BaseModel):
+    vector: List[float]
+    top_k: Optional[int] = 5
+    collection: Optional[str] = "ui_vectors"
+
+class VectorTextSearchRequest(BaseModel):
+    text: str
+    top_k: Optional[int] = 5
+    collection: Optional[str] = "ui_vectors"
+
+class VectorCosineRequest(BaseModel):
+    id_a: Optional[str] = None
+    id_b: Optional[str] = None
+    vector_a: Optional[List[float]] = None
+    vector_b: Optional[List[float]] = None
+    collection: Optional[str] = "ui_vectors"
+
+class RecordCreateRequest(BaseModel):
+    id: Optional[str] = None
+    text: str
+    metadata: Optional[Dict[str, Any]] = None
+    vector: Optional[List[float]] = None
+    collection: Optional[str] = "ui_vectors"
+
+class RecordUpdateRequest(BaseModel):
+    text: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    vector: Optional[List[float]] = None
+    collection: Optional[str] = "ui_vectors"
+
+class RecordSearchRequest(BaseModel):
+    text: str
+    top_k: Optional[int] = 10
+    collection: Optional[str] = "ui_vectors"
 
 # ---------------------------------------------------------------------------
 # CodingAgent (RigelClaude) request/response models
@@ -695,6 +770,13 @@ def _get_session_vector_db() -> Optional[DBConn]:
             session_vector_db = False
     return session_vector_db if session_vector_db is not False else None
 
+def _get_vector_cache() -> VectorCache:
+    """Lazy singleton for the NL vector cache."""
+    global _vector_cache
+    if _vector_cache is None:
+        _vector_cache = VectorCache()
+    return _vector_cache
+
 def _get_vector_session_context(session_id: str, query: str) -> str:
     db = _get_session_vector_db()
     if db is None:
@@ -718,6 +800,84 @@ def _save_vector_session_turn(session_id: str, user_text: str, assistant_text: s
         )
     except Exception as e:
         syslog.warning(f"Failed to save vector session turn: {str(e)}")
+
+def _sanitize_collection_name(collection: Optional[str]) -> str:
+    name = (collection or "ui_vectors").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Collection name cannot be empty")
+    if not re.match(r"^[A-Za-z0-9._-]{1,128}$", name):
+        raise HTTPException(status_code=400, detail="Invalid collection name")
+    return name
+
+def _get_ui_embedding_function():
+    global ui_embedding_function
+    if ui_embedding_function is None:
+        ui_embedding_function = DefaultEmbeddingFunction()
+    return ui_embedding_function
+
+def _embed_text(text: str) -> List[float]:
+    clean = (text or "").strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="text is required")
+    try:
+        return _get_ui_embedding_function()([clean])[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to embed text: {str(e)}")
+
+def _get_ui_vectors_collection(collection_name: str = "ui_vectors"):
+    global ui_vectors_collection
+    db = _get_session_vector_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Vector database is unavailable")
+
+    collection_name = _sanitize_collection_name(collection_name)
+    cache = ui_vectors_collection if isinstance(ui_vectors_collection, dict) else {}
+    if collection_name in cache:
+        return cache[collection_name]
+
+    try:
+        collection = db.chroma_client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+    except Exception:
+        collection = db.chroma_client.get_or_create_collection(name=collection_name)
+
+    cache[collection_name] = collection
+    ui_vectors_collection = cache
+    return collection
+
+def _get_ui_vectors_collection_for_text(collection_name: str = "ui_vectors"):
+    db = _get_session_vector_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Vector database is unavailable")
+    name = _sanitize_collection_name(collection_name)
+    return db.chroma_client.get_collection(
+        name=name,
+        embedding_function=_get_ui_embedding_function(),
+    )
+
+def _normalize_vector(vector: List[float], field_name: str = "vector") -> List[float]:
+    if not isinstance(vector, list) or not vector:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a non-empty array of numbers")
+    try:
+        parsed = [float(v) for v in vector]
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"{field_name} must contain only numeric values")
+    return parsed
+
+def _cosine_similarity(vector_a: List[float], vector_b: List[float]) -> float:
+    a = np.array(vector_a, dtype=np.float32)
+    b = np.array(vector_b, dtype=np.float32)
+    if a.shape != b.shape:
+        raise HTTPException(status_code=400, detail="Vectors must have the same dimensionality")
+
+    norm_a = float(np.linalg.norm(a))
+    norm_b = float(np.linalg.norm(b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        raise HTTPException(status_code=400, detail="Zero vectors are not valid for cosine similarity")
+
+    return float(np.dot(a, b) / (norm_a * norm_b))
 
 # Routes
 @app.get("/", response_model=dict)
@@ -1044,7 +1204,12 @@ def _get_or_create_tool_rigel():
     global tools_rigel, tools_rigel_signature
 
     tool_engine = os.getenv("TOOL_CALL_ENGINE", "ollama").lower()
-    default_tool_model = "qwen3:0.6b" if tool_engine == "ollama" else os.getenv("TOOL_CALL_GROQ_MODEL", "qwen/qwen3-32b")
+    if tool_engine == "ollama":
+        default_tool_model = "qwen3:0.6b"
+    elif tool_engine == "deepseek":
+        default_tool_model = os.getenv("TOOL_CALL_DEEPSEEK_MODEL", os.getenv("DEEPSEEK_MODEL", "deepseek-v3"))
+    else:
+        default_tool_model = os.getenv("TOOL_CALL_GROQ_MODEL", "qwen/qwen3-32b")
     tool_model = os.getenv("TOOL_CALL_MODEL", default_tool_model)
     tool_temp = float(os.getenv("TOOL_TEMPERATURE", os.getenv("TEMPERATURE", "0.0")))
     tools_sse_url = get_tools_sse_url()
@@ -1062,11 +1227,12 @@ def _get_or_create_tool_rigel():
         },
     )
 
-    tools_rigel = (
-        RigelGroq(model_name=tool_model, temp=tool_temp, mcp_endpoint=tool_mcp)
-        if tool_engine == "groq"
-        else RigelOllama(model_name=tool_model, mcp_endpoint=tool_mcp)
-    )
+    if tool_engine == "groq":
+        tools_rigel = RigelGroq(model_name=tool_model, temp=tool_temp, mcp_endpoint=tool_mcp)
+    elif tool_engine == "deepseek":
+        tools_rigel = RigelDeepseek(model_name=tool_model, temp=tool_temp, mcp_endpoint=tool_mcp)
+    else:
+        tools_rigel = RigelOllama(model_name=tool_model, mcp_endpoint=tool_mcp)
     tools_rigel_signature = current_signature
     return tools_rigel
 
@@ -1082,6 +1248,11 @@ async def rigel_natural_language(request: NaturalLanguageRequest, tenant_info: D
 
     start_time = time.time()
     thread_id = request.id or "default"
+    confidence = request.voice_recognition_confidence
+    if confidence is not None and confidence < 0.5:
+        return QueryResponse(
+            response="Voice Recognition Confidence too low, Please rephrase the query"
+        )
 
     try:
         current_system_prompt = system_prompt
@@ -1126,17 +1297,29 @@ async def rigel_natural_language(request: NaturalLanguageRequest, tenant_info: D
         No markdown.
         """
 
-        memory_decision = rigel.inference_with_memory(
-            messages=[
-                ("system", memory_agent_prompt),
-                ("human", user_input_with_context)
-            ],
-            thread_id=thread_id,
-            RAG=False
-        )
-
-        decision_text = memory_decision.content if hasattr(memory_decision, "content") else str(memory_decision)
-        decision_text = decision_text.strip()
+        # --- VECTOR CACHE: memory_agent ---
+        _vc = _get_vector_cache()
+        _cached_decision = _vc.lookup(request.query, tag="memory_agent")
+        if _cached_decision:
+            syslog.info("[VectorCache] tripped")
+            syslog.info("[VECTOR CACHE HIT] memory_agent — skipping memory agent LLM")
+            decision_text = _cached_decision
+        else:
+            memory_decision = rigel.inference_with_memory(
+                messages=[
+                    ("system", memory_agent_prompt),
+                    ("human", user_input_with_context)
+                ],
+                thread_id=thread_id,
+                RAG=False
+            )
+            decision_text = memory_decision.content if hasattr(memory_decision, "content") else str(memory_decision)
+            decision_text = decision_text.strip()
+            # Submit to the background classifier queue — non-blocking.
+            # The worker thread will classify the query and only write to
+            # VectorCache if it is standalone (context-independent).
+            from helpers.standalone_classifier import get_cache_writer_queue  # noqa: PLC0415
+            get_cache_writer_queue().submit(request.query, decision_text, tag="memory_agent")
 
         delegated = False
         tool_task = _resolve_tool_task(decision_text, request.query, thread_id)
@@ -1419,15 +1602,17 @@ async def clone_voice_endpoint(request: CloneVoiceRequest, tenant_info: Dict[str
 
 @app.post("/recognize-audio", response_model=RecognizeResponse)
 async def recognize_audio(
+    request: Request,
     audio_file: UploadFile = File(...),
     model: str = Form("tiny"),
-    tenant_info: Dict[str, Any] = Depends(require_api_key)
+    tenant_info: Dict[str, Any] = Depends(require_api_key),
 ):
     """Transcribe audio file to text"""
     global recognizer
     
     # Check quotas and rate limits
-    await check_quotas_and_limits(tenant_info, "recognize-audio")
+    client_host = request.client.host if request and request.client else None
+    await check_quotas_and_limits(tenant_info, "recognize-audio", client_host=client_host)
     
     start_time = time.time()
     
@@ -1617,6 +1802,502 @@ async def require_admin_key(x_admin_key: str = Header(None, alias="X-Admin-Key")
         )
     return True
 
+@app.post("/vectors/api/add")
+async def ui_vectors_add(
+    request: VectorAddRequest,
+    _: bool = Depends(require_admin_key),
+):
+    collection = _get_ui_vectors_collection(request.collection or "ui_vectors")
+    vector = _normalize_vector(request.vector, "vector")
+    metadata = dict(request.metadata or {})
+    metadata.setdefault("created_at", datetime.utcnow().isoformat())
+
+    try:
+        collection.upsert(
+            ids=[request.id],
+            embeddings=[vector],
+            documents=[request.document or ""],
+            metadatas=[metadata],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add vector: {str(e)}")
+
+    return {"status": "ok", "id": request.id, "dimension": len(vector)}
+
+@app.delete("/vectors/api/delete/{vector_id}")
+async def ui_vectors_delete(
+    vector_id: str,
+    collection: str = "ui_vectors",
+    _: bool = Depends(require_admin_key),
+):
+    collection = _get_ui_vectors_collection(collection)
+    try:
+        collection.delete(ids=[vector_id])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete vector: {str(e)}")
+    return {"status": "ok", "deleted_id": vector_id}
+
+@app.get("/vectors/api/list")
+async def ui_vectors_list(
+    collection: str = "ui_vectors",
+    limit: int = 100,
+    offset: int = 0,
+    include_embeddings: bool = False,
+    _: bool = Depends(require_admin_key),
+):
+    collection = _get_ui_vectors_collection(collection)
+    include = ["documents", "metadatas"]
+    if include_embeddings:
+        include.append("embeddings")
+
+    try:
+        result = collection.get(limit=max(1, min(limit, 1000)), offset=max(0, offset), include=include)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list vectors: {str(e)}")
+
+    ids = result.get("ids", []) or []
+    documents = result.get("documents", []) or []
+    metadatas = result.get("metadatas", []) or []
+    embeddings = result.get("embeddings", []) or []
+
+    items = []
+    for i, vec_id in enumerate(ids):
+        item = {
+            "id": vec_id,
+            "document": documents[i] if i < len(documents) else None,
+            "metadata": metadatas[i] if i < len(metadatas) else None,
+        }
+        if include_embeddings and i < len(embeddings) and embeddings[i] is not None:
+            emb = embeddings[i]
+            item["dimension"] = len(emb)
+            item["embedding_preview"] = emb[:8]
+        items.append(item)
+
+    return {"count": len(items), "items": items}
+
+@app.post("/vectors/api/search")
+async def ui_vectors_search(
+    request: VectorSearchRequest,
+    _: bool = Depends(require_admin_key),
+):
+    collection = _get_ui_vectors_collection(request.collection or "ui_vectors")
+    query_vector = _normalize_vector(request.vector, "vector")
+    top_k = max(1, min(int(request.top_k or 5), 100))
+
+    try:
+        result = collection.query(
+            query_embeddings=[query_vector],
+            n_results=top_k,
+            include=["distances", "documents", "metadatas", "embeddings"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search vectors: {str(e)}")
+
+    ids = (result.get("ids") or [[]])[0]
+    distances = (result.get("distances") or [[]])[0]
+    documents = (result.get("documents") or [[]])[0]
+    metadatas = (result.get("metadatas") or [[]])[0]
+    embeddings = (result.get("embeddings") or [[]])[0]
+
+    hits = []
+    for i, vec_id in enumerate(ids):
+        item = {
+            "id": vec_id,
+            "distance": distances[i] if i < len(distances) else None,
+            "document": documents[i] if i < len(documents) else None,
+            "metadata": metadatas[i] if i < len(metadatas) else None,
+        }
+        if i < len(embeddings) and embeddings[i] is not None:
+            try:
+                item["cosine_similarity"] = _cosine_similarity(query_vector, embeddings[i])
+            except HTTPException:
+                item["cosine_similarity"] = None
+        hits.append(item)
+
+    return {
+        "collection": request.collection or "ui_vectors",
+        "query_dimension": len(query_vector),
+        "top_k": top_k,
+        "results": hits,
+    }
+
+@app.post("/vectors/api/search-text")
+async def ui_vectors_search_text(
+    request: VectorTextSearchRequest,
+    _: bool = Depends(require_admin_key),
+):
+    collection_name = request.collection or "ui_vectors"
+    collection = _get_ui_vectors_collection_for_text(collection_name)
+    text = (request.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    top_k = max(1, min(int(request.top_k or 5), 100))
+
+    try:
+        query_embedding = _get_ui_embedding_function()([text])[0]
+        result = collection.query(
+            query_texts=[text],
+            n_results=top_k,
+            include=["distances", "documents", "metadatas", "embeddings"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search vectors by text: {str(e)}")
+
+    ids = (result.get("ids") or [[]])[0]
+    distances = (result.get("distances") or [[]])[0]
+    documents = (result.get("documents") or [[]])[0]
+    metadatas = (result.get("metadatas") or [[]])[0]
+    embeddings = (result.get("embeddings") or [[]])[0]
+
+    hits = []
+    for i, vec_id in enumerate(ids):
+        item = {
+            "id": vec_id,
+            "distance": distances[i] if i < len(distances) else None,
+            "document": documents[i] if i < len(documents) else None,
+            "metadata": metadatas[i] if i < len(metadatas) else None,
+        }
+        if i < len(embeddings) and embeddings[i] is not None:
+            try:
+                item["cosine_similarity"] = _cosine_similarity(query_embedding, embeddings[i])
+            except HTTPException:
+                item["cosine_similarity"] = None
+        hits.append(item)
+
+    return {
+        "collection": collection_name,
+        "query_text": text,
+        "embedding_model": "chromadb DefaultEmbeddingFunction",
+        "query_dimension": len(query_embedding),
+        "top_k": top_k,
+        "results": hits,
+    }
+
+@app.post("/vectors/api/cosine")
+async def ui_vectors_cosine_similarity(
+    request: VectorCosineRequest,
+    _: bool = Depends(require_admin_key),
+):
+    collection = _get_ui_vectors_collection(request.collection or "ui_vectors")
+    vector_a = request.vector_a
+    vector_b = request.vector_b
+
+    if request.id_a and vector_a is None:
+        data_a = collection.get(ids=[request.id_a], include=["embeddings"])
+        emb_a = data_a.get("embeddings", [])
+        if not emb_a or emb_a[0] is None:
+            raise HTTPException(status_code=404, detail=f"Vector not found for id_a={request.id_a}")
+        vector_a = emb_a[0]
+
+    if request.id_b and vector_b is None:
+        data_b = collection.get(ids=[request.id_b], include=["embeddings"])
+        emb_b = data_b.get("embeddings", [])
+        if not emb_b or emb_b[0] is None:
+            raise HTTPException(status_code=404, detail=f"Vector not found for id_b={request.id_b}")
+        vector_b = emb_b[0]
+
+    if vector_a is None or vector_b is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide vector_a and vector_b, or id_a and id_b, or mix of id and vector",
+        )
+
+    vector_a = _normalize_vector(vector_a, "vector_a")
+    vector_b = _normalize_vector(vector_b, "vector_b")
+    cosine = _cosine_similarity(vector_a, vector_b)
+    return {
+        "cosine_similarity": cosine,
+        "dimension": len(vector_a),
+        "id_a": request.id_a,
+        "id_b": request.id_b,
+        "collection": request.collection or "ui_vectors",
+    }
+
+@app.post("/vectors/api/records")
+async def ui_vectors_create_record(
+    request: RecordCreateRequest,
+    _: bool = Depends(require_admin_key),
+):
+    collection_name = request.collection or "ui_vectors"
+    collection = _get_ui_vectors_collection(collection_name)
+    record_id = (request.id or "").strip() or str(uuid.uuid4())
+    text = (request.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    embedding = _normalize_vector(request.vector, "vector") if request.vector is not None else _embed_text(text)
+    now = datetime.utcnow().isoformat()
+    metadata = dict(request.metadata or {})
+    metadata.setdefault("created_at", now)
+    metadata["updated_at"] = now
+
+    try:
+        collection.upsert(
+            ids=[record_id],
+            documents=[text],
+            embeddings=[embedding],
+            metadatas=[metadata],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create record: {str(e)}")
+
+    return {"status": "ok", "id": record_id, "collection": collection_name, "dimension": len(embedding)}
+
+@app.get("/vectors/api/records")
+async def ui_vectors_list_records(
+    collection: str = "ui_vectors",
+    limit: int = 100,
+    offset: int = 0,
+    q: Optional[str] = None,
+    _: bool = Depends(require_admin_key),
+):
+    coll = _get_ui_vectors_collection(collection)
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+
+    try:
+        result = coll.get(limit=limit, offset=offset, include=["documents", "metadatas", "embeddings"])
+        total = coll.count()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list records: {str(e)}")
+
+    ids = result.get("ids", []) or []
+    docs = result.get("documents", []) or []
+    metas = result.get("metadatas", []) or []
+    embs = result.get("embeddings", []) or []
+    q_norm = (q or "").strip().lower()
+
+    records = []
+    for i, rid in enumerate(ids):
+        text = docs[i] if i < len(docs) else ""
+        if q_norm and q_norm not in (text or "").lower():
+            continue
+        emb = embs[i] if i < len(embs) else None
+        records.append(
+            {
+                "id": rid,
+                "text": text,
+                "metadata": metas[i] if i < len(metas) else None,
+                "dimension": len(emb) if emb is not None else None,
+                "embedding_preview": emb[:6] if emb is not None else None,
+            }
+        )
+
+    return {"collection": collection, "total": total, "count": len(records), "records": records}
+
+@app.get("/vectors/api/records/{record_id}")
+async def ui_vectors_get_record(
+    record_id: str,
+    collection: str = "ui_vectors",
+    _: bool = Depends(require_admin_key),
+):
+    record_id = (record_id or "").strip()
+    if not record_id:
+        raise HTTPException(status_code=400, detail="record_id is required")
+    coll = _get_ui_vectors_collection(collection)
+    try:
+        result = coll.get(ids=[record_id], include=["documents", "metadatas", "embeddings"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get record: {str(e)}")
+
+    ids = result.get("ids", []) or []
+    if not ids:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    docs = result.get("documents", []) or []
+    metas = result.get("metadatas", []) or []
+    embs = result.get("embeddings", []) or []
+    emb = embs[0] if embs else None
+    return {
+        "collection": collection,
+        "record": {
+            "id": ids[0],
+            "text": docs[0] if docs else "",
+            "metadata": metas[0] if metas else None,
+            "dimension": len(emb) if emb is not None else None,
+            "embedding_preview": emb[:8] if emb is not None else None,
+        },
+    }
+
+@app.put("/vectors/api/records/{record_id}")
+async def ui_vectors_update_record(
+    record_id: str,
+    request: RecordUpdateRequest,
+    _: bool = Depends(require_admin_key),
+):
+    record_id = (record_id or "").strip()
+    if not record_id:
+        raise HTTPException(status_code=400, detail="record_id is required")
+    collection_name = request.collection or "ui_vectors"
+    coll = _get_ui_vectors_collection(collection_name)
+
+    def _first_or_none(value):
+        if not value:
+            return None
+        first = value[0]
+        if isinstance(first, list):
+            return first[0] if first else None
+        return first
+
+    try:
+        existing = coll.get(ids=[record_id], include=["documents", "metadatas"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read record: {str(e)}")
+
+    ids = existing.get("ids", []) or []
+    if not ids:
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    old_text = str(_first_or_none(existing.get("documents")) or "").strip()
+    old_meta = _first_or_none(existing.get("metadatas"))
+    old_meta = old_meta if isinstance(old_meta, dict) else {}
+
+    new_text = old_text if request.text is None else request.text.strip()
+    if not new_text:
+        raise HTTPException(status_code=400, detail="text cannot be empty")
+
+    text_changed = request.text is not None and request.text.strip() != old_text
+
+    if request.vector is not None:
+        new_embedding = _normalize_vector(request.vector, "vector")
+    elif text_changed:
+        new_embedding = _embed_text(new_text)
+    else:
+        new_embedding = None
+
+    new_meta = dict(old_meta)
+    if request.metadata is not None:
+        new_meta = dict(request.metadata)
+    if "created_at" not in new_meta and isinstance(old_meta, dict) and old_meta.get("created_at"):
+        new_meta["created_at"] = old_meta.get("created_at")
+    new_meta["updated_at"] = datetime.utcnow().isoformat()
+
+    update_payload = {
+        "ids": [record_id],
+        "documents": [new_text],
+        "metadatas": [new_meta],
+    }
+    if new_embedding is not None:
+        update_payload["embeddings"] = [new_embedding]
+
+    try:
+        coll.update(**update_payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update record: {str(e)}")
+
+    return {
+        "status": "ok",
+        "id": record_id,
+        "collection": collection_name,
+        "dimension": len(new_embedding) if new_embedding is not None else None,
+    }
+
+@app.delete("/vectors/api/records/{record_id}")
+async def ui_vectors_delete_record(
+    record_id: str,
+    collection: str = "ui_vectors",
+    _: bool = Depends(require_admin_key),
+):
+    record_id = (record_id or "").strip()
+    if not record_id:
+        raise HTTPException(status_code=400, detail="record_id is required")
+    coll = _get_ui_vectors_collection(collection)
+    try:
+        # Force a lookup first so delete returns a deterministic result for missing IDs.
+        existing = coll.get(ids=[record_id])
+        ids = existing.get("ids", []) or []
+        if not ids:
+            raise HTTPException(status_code=404, detail="Record not found")
+        coll.delete(ids=[record_id])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete record: {str(e)}")
+    return {"status": "ok", "deleted_id": record_id, "collection": collection}
+
+@app.post("/vectors/api/records/search")
+async def ui_vectors_search_records(
+    request: RecordSearchRequest,
+    _: bool = Depends(require_admin_key),
+):
+    collection_name = request.collection or "ui_vectors"
+    coll = _get_ui_vectors_collection(collection_name)
+    text = (request.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    top_k = max(1, min(int(request.top_k or 10), 100))
+    query_embedding = _embed_text(text)
+
+    try:
+        result = coll.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["distances", "documents", "metadatas", "embeddings"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search records: {str(e)}")
+
+    ids = (result.get("ids") or [[]])[0]
+    distances = (result.get("distances") or [[]])[0]
+    docs = (result.get("documents") or [[]])[0]
+    metas = (result.get("metadatas") or [[]])[0]
+    embs = (result.get("embeddings") or [[]])[0]
+
+    records = []
+    for i, rid in enumerate(ids):
+        emb = embs[i] if i < len(embs) else None
+        cosine = None
+        if emb is not None:
+            try:
+                cosine = _cosine_similarity(query_embedding, emb)
+            except HTTPException:
+                cosine = None
+        records.append(
+            {
+                "id": rid,
+                "text": docs[i] if i < len(docs) else "",
+                "metadata": metas[i] if i < len(metas) else None,
+                "distance": distances[i] if i < len(distances) else None,
+                "cosine_similarity": cosine,
+            }
+        )
+
+    return {
+        "collection": collection_name,
+        "query_text": text,
+        "embedding_model": "chromadb DefaultEmbeddingFunction",
+        "query_dimension": len(query_embedding),
+        "count": len(records),
+        "records": records,
+    }
+
+@app.get("/vectors/api/databases")
+async def ui_vectors_list_databases(
+    include_counts: bool = True,
+    _: bool = Depends(require_admin_key),
+):
+    db = _get_session_vector_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Vector database is unavailable")
+
+    try:
+        raw_collections = db.chroma_client.list_collections()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list databases: {str(e)}")
+
+    databases = []
+    for item in raw_collections:
+        name = item.name if hasattr(item, "name") else str(item)
+        row = {"name": name}
+        if include_counts:
+            try:
+                row["count"] = db.chroma_client.get_collection(name=name).count()
+            except Exception:
+                row["count"] = None
+        databases.append(row)
+
+    return {"count": len(databases), "databases": databases}
+
 @app.post("/admin/create-key", response_model=CreateKeyResponse)
 async def create_new_api_key(
     request: CreateKeyRequest,
@@ -1732,15 +2413,15 @@ async def switch_inference_engine(
     request: InferenceEngineRequest,
     _: bool = Depends(require_admin_key)
 ):
-    """Switch the inference engine between GROQ and OLLAMA - admin only"""
+    """Switch the inference engine between GROQ, OLLAMA, and DEEPSEEK - admin only"""
     global inference_engine, rigel
     
     try:
         engine = request.engine.lower()
-        if engine not in ["groq", "ollama"]:
+        if engine not in ["groq", "ollama", "deepseek"]:
             raise HTTPException(
                 status_code=400, 
-                detail="Invalid engine type. Must be 'groq' or 'ollama'."
+                detail="Invalid engine type. Must be 'groq', 'ollama', or 'deepseek'."
             )
         
         # Only reinitialize if the engine is changing
@@ -1965,6 +2646,18 @@ async def initialize_rigel():
         print("RIGEL initialized with OLLAMA backend")
         print("Initializing RIGEL Vector DB... [BACKGROUND]")
         # Initialize database in the background
+        import threading
+        db_init_thread = threading.Thread(target=rigel.readAndInitializeDatabase)
+        db_init_thread.daemon = True
+        db_init_thread.start()
+        print("RIGEL Vector DB initialization started in background")
+
+    elif inference_engine == "deepseek":
+        # Choose model from env: NORMAL_CHAT_MODEL > GENERAL_LLM_MODEL > DEEPSEEK_MODEL > default
+        model_to_use = os.getenv("NORMAL_CHAT_MODEL") or os.getenv("GENERAL_LLM_MODEL") or os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+        rigel = RigelDeepseek(model_name=model_to_use, mcp_endpoint=default_mcp)
+        print("RIGEL initialized with DEEPSEEK backend")
+        print("Initializing RIGEL Vector DB... [BACKGROUND]")
         import threading
         db_init_thread = threading.Thread(target=rigel.readAndInitializeDatabase)
         db_init_thread.daemon = True

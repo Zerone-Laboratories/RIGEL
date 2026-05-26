@@ -73,7 +73,7 @@ def check_dependencies():
 
     # Check for core RIGEL dependencies
     try:
-        from core.rigel import RigelOllama, RigelGroq
+        from core.rigel import RigelOllama, RigelGroq, RigelUnifiedrouter, RigelDeepseek
         from core.logger import SysLog
         core_available = True
     except ImportError:

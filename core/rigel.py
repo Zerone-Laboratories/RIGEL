@@ -95,7 +95,7 @@ RIGEL V{VERSION} - Main Source
                                                                   :::                               :::
                                                                            ::::::::: :::::::::
 """
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from core.logger import SysLog
 import os
@@ -103,6 +103,8 @@ import glob
 import getpass
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
+# from langchain_deepseek import ChatDeepSeek
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from mcp import ClientSession, StdioServerParameters
@@ -117,6 +119,11 @@ from core.rdb import DBConn
 from typing import Dict, List, Any, Optional, Union, Tuple
 from datetime import datetime
 from pathlib import Path
+import json
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
+
+
 
 # Import OSTools if available
 try:
@@ -355,10 +362,110 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         syslog.info(f"Streaming {method_name} complete. Stream written to: {target_stream_path}")
         return AIMessage(content=response_text)
 
-    async def __init_mcp(self):
+    def _tool_name(self, tool: Any) -> Optional[str]:
+        if hasattr(tool, "name"):
+            return getattr(tool, "name")
+        if isinstance(tool, dict):
+            return tool.get("name")
+        return None
+
+    def _get_mcp_tool_search_url(self) -> str:
+        base_url = os.getenv("RIGEL_MCP_TOOLS_URL")
+        if base_url:
+            return base_url.rstrip("/") + "/call-tool"
+
+        return "http://localhost:8002/call-tool"
+
+    def _normalize_messages(self, messages: List[Any]) -> List[Any]:
+        normalized: List[Any] = []
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                reasoning = None
+                if msg.additional_kwargs:
+                    reasoning = msg.additional_kwargs.get("reasoning_content") or msg.additional_kwargs.get("reasoning")
+                if not reasoning and hasattr(msg, "response_metadata"):
+                    reasoning = msg.response_metadata.get("reasoning_content") or msg.response_metadata.get("reasoning")
+
+                if reasoning:
+                    if msg.additional_kwargs is None:
+                        msg.additional_kwargs = {}
+                    msg.additional_kwargs.setdefault("reasoning_content", reasoning)
+                normalized.append(msg)
+                continue
+
+            if isinstance(msg, (HumanMessage, SystemMessage)):
+                normalized.append(msg)
+                continue
+
+            if isinstance(msg, dict):
+                role = msg.get("role") or msg.get("type")
+                content = msg.get("content", "")
+                reasoning = msg.get("reasoning_content") or msg.get("reasoning")
+
+                if role in ("user", "human"):
+                    normalized.append(HumanMessage(content=content))
+                elif role in ("assistant", "ai"):
+                    additional_kwargs = {"reasoning_content": reasoning} if reasoning else None
+                    tool_calls = msg.get("tool_calls")
+                    normalized.append(AIMessage(content=content, additional_kwargs=additional_kwargs, tool_calls=tool_calls))
+                elif role == "system":
+                    normalized.append(SystemMessage(content=content))
+                else:
+                    normalized.append(msg)
+                continue
+
+            normalized.append(msg)
+        return normalized
+
+    def _fetch_tool_matches(self, query: str, top_k: int = 10) -> List[str]:
+        if not query:
+            return []
+
+        url = self._get_mcp_tool_search_url()
+        payload = json.dumps({
+            "name": "search_tools",
+            "arguments": {"query": query, "top_k": top_k}
+        }).encode("utf-8")
+
+        request = Request(url, data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=10) as response:
+                body = response.read().decode("utf-8")
+        except (URLError, HTTPError, TimeoutError) as e:
+            syslog.warning(f"Tool search request failed: {e}")
+            return []
+
+        try:
+            outer = json.loads(body)
+            content = outer.get("content", [])
+            if not content:
+                return []
+            text = content[0].get("text", "") if isinstance(content[0], dict) else ""
+            inner = json.loads(text) if text else {}
+        except Exception:
+            return []
+
+        matches = inner.get("matches", [])
+        return [match.get("name") for match in matches if match.get("name")]
+
+    def _filter_tools_for_query(self, tools: List[Any], query: str, top_k: int = 10) -> List[Any]:
+        matches = self._fetch_tool_matches(query, top_k=top_k)
+        if not matches:
+            return tools
+
+        selected = set(matches)
+        selected.add("search_tools")
+        # Keep essential tools available even when semantic retrieval misses them.
+        selected.update({"search_web", "run_bash_command", "show_available_commands"})
+        filtered = [tool for tool in tools if self._tool_name(tool) in selected]
+        return filtered or tools
+
+    async def __init_mcp(self, user_query: Optional[str] = None):
         if not self._initialized:
             try:
                 self.tools = await self.client.get_tools()
+                if user_query:
+                    self.tools = self._filter_tools_for_query(self.tools, user_query, top_k=10)
                 self.agent = create_react_agent(self.llm, self.tools)
                 self._initialized = True
             except Exception as e:
@@ -375,8 +482,16 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
 
     async def inference_with_tools(self, prompt, tools=None):
+
         if not self._initialized:
-            await self.__init_mcp()
+            await self.__init_mcp(prompt)
+        else:
+            try:
+                self.tools = await self.client.get_tools()
+                self.tools = self._filter_tools_for_query(self.tools, prompt, top_k=10)
+                self.agent = create_react_agent(self.llm, self.tools)
+            except Exception as e:
+                syslog.warning(f"Tool refresh failed; using existing agent: {e}")
 
         messages = [
             SystemMessage(content=self.continuity),
@@ -402,12 +517,15 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                 syslog.info(f"Inference iteration {iteration_count}")
                 for i in range(0,2):
                     try:
+                        messages = self._normalize_messages(messages)
                         result = await self.agent.ainvoke({"messages": messages})
                         break
                     except Exception as e:
                         syslog.error(f"Inference Failed !, Retrying... Error: {str(e)}")
-                        result = f"Error occured with inference !"
-                        pass
+                        result = None
+                if not isinstance(result, dict) or "messages" not in result:
+                    return _finalize_tools_response("Error occurred during tool-based inference: invalid response from model")
+
                 new_messages = result["messages"][len(messages):]
 
                 iteration_output = []
@@ -453,8 +571,8 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
 
                     syslog.info(f"No continuity breaker detected. Current output: {response_content}")
                     syslog.info(f"Continuing with task execution (iteration {iteration_count})")
-                    messages = result["messages"]
-                    messages.append({"role": "user", "content": "Continue with the task."})
+                    messages = self._normalize_messages(result["messages"])
+                    messages.append(HumanMessage(content="Continue with the task."))
 
                 else:
                     return _finalize_tools_response("\n\n".join(complete_output))
@@ -591,9 +709,9 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
                 system_message = content + time_context + rag_summary
                 formatted_messages.append(SystemMessage(content=system_message))
             elif role == "human":
-                formatted_messages.append({"role": "user", "content": content})
+                formatted_messages.append(HumanMessage(content=content))
             elif role == "ai":
-                formatted_messages.append({"role": "assistant", "content": content})
+                formatted_messages.append(AIMessage(content=content))
 
         if not self.app:
             self._setup_workflow(system_message)
@@ -713,8 +831,9 @@ class Rigel: # RIGEL Super Class. Use this to create derived classes
         config = {"configurable": {"thread_id": thread_id}}
 
         try:
-            # This will clear the memory for the thread
-            self.memory.delete(config)
+            # MemorySaver (InMemorySaver in newer LangGraph) has no .delete().
+            # Use update_state to overwrite the thread checkpoint with empty messages.
+            self.app.update_state(config, {"messages": []})
             syslog.info(f"Cleared memory for thread: {thread_id}")
         except Exception as e:
             syslog.warning(f"Could not clear memory for thread {thread_id}: {e}")
@@ -907,6 +1026,75 @@ class RigelGroq(Rigel): # RIGEL with groq backend
         except Exception as e:
             syslog.error(f"Failed to initialize Groq LLM: {e}")
             syslog.error("Check that your GROQ_API_KEY is valid and properly set")
+            raise
+
+    def inference(self, messages: list, model: str = None):
+        if model:
+            self.llm.model = model
+        return super().inference(messages)
+
+class RigelUnifiedrouter(Rigel): # RIGEL with OpenAI-compatible backend
+    def __init__(self, model_name: str = "gpt-4o-mini", temp: float = 0.7, mcp_endpoint = default_mcp):
+        super().__init__(model_name=model_name, chatmode="openai_compat", mcp_endpoint=mcp_endpoint)
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            try:
+                api_key = getpass.getpass("Enter your OpenAI API key: ")
+                os.environ["OPENAI_API_KEY"] = api_key
+            except Exception as e:
+                syslog.error(f"Failed to get OpenAI-compatible API key: {e}")
+                raise RuntimeError("OPENAI_API_KEY environment variable is not set and unable to prompt for input")
+
+        base_url = (
+            os.getenv("OPENAI_API_BASE")
+            or os.getenv("OPENAI_BASE_URL")
+            or "https://api.openai.com/v1"
+        )
+        disable_reasoning = os.getenv("UNIFIED_ROUTER_DISABLE_REASONING", "true").lower() == "true"
+        if disable_reasoning:
+            self.continuity = "<think> All rules and guidelines are understood and will be complied with. I will proceed with the response. </think>" + self.continuity
+        try:
+            self.llm = ChatOpenAI(
+                model=self.model,
+                api_key=api_key,
+                base_url=base_url,
+                temperature=temp,
+            )
+            syslog.info(f"Successfully initialized OpenAI-compatible LLM with model {self.model}")
+        except Exception as e:
+            syslog.error(f"Failed to initialize OpenAI-compatible LLM: {e}")
+            syslog.error("Check that your API key and base URL are valid and properly set")
+            raise
+
+    def inference(self, messages: list, model: str = None):
+        if model:
+            self.llm.model = model
+        return super().inference(messages)
+
+class RigelDeepseek(Rigel): # RIGEL with DeepSeek backend
+    def __init__(self, model_name: str = "deepseek-v4-pro", temp: float = 0.7, mcp_endpoint = default_mcp):
+        super().__init__(model_name=model_name, chatmode="deepseek", mcp_endpoint=mcp_endpoint)
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        if not api_key:
+            try:
+                api_key = getpass.getpass("Enter your DeepSeek API key: ")
+                os.environ["DEEPSEEK_API_KEY"] = api_key
+            except Exception as e:
+                syslog.error(f"Failed to get DeepSeek API key: {e}")
+                raise RuntimeError("DEEPSEEK_API_KEY environment variable is not set and unable to prompt for input")
+
+        base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        try:
+            self.llm = ChatOpenAI(
+                model=self.model,
+                api_key=api_key,
+                base_url=base_url,
+                temperature=temp,
+            )
+            syslog.info(f"Successfully initialized DeepSeek LLM with model {self.model}")
+        except Exception as e:
+            syslog.error(f"Failed to initialize DeepSeek LLM: {e}")
+            syslog.error("Check that your DEEPSEEK_API_KEY and base URL are valid and properly set")
             raise
 
     def inference(self, messages: list, model: str = None):

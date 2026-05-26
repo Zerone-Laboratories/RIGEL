@@ -1,0 +1,47 @@
+Metadata-Version: 2.4
+Name: rigel-voice-assets
+Version: 5.0.0
+Summary: Optional asset locator package for Rigel voice synthesis/live recognition binaries and models.
+Author: Zerone Laboratories Systems
+License-Expression: AGPL-3.0-or-later
+Project-URL: Homepage, https://github.com/zeronelabs/rigel
+Project-URL: Repository, https://github.com/zeronelabs/rigel
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# rigel-voice-assets
+
+Optional companion package for `rigel-core` voice features.
+
+This package provides a standard location contract for voice assets so `rigel-core` can discover them without changing Docker workflows.
+
+## Asset layout
+
+Default root:
+
+`~/.cache/rigel/voice-assets`
+
+Expected directories:
+
+- `synthesis_assets/` (Piper `.onnx` voice files)
+- `whisper_live/` (`whisper-stream`, `whisper-cli`, `lib/`, `models/`)
+
+Override with env vars:
+
+- `RIGEL_VOICE_ASSETS_DIR`
+- `RIGEL_SYNTHESIS_ASSETS_DIR`
+- `RIGEL_WHISPER_LIVE_DIR`
+
+## Guide
+
+Run:
+
+```bash
+python -m rigel_voice_assets
+```
+
+or:
+
+```bash
+rigel-voice-assets-guide
+```
