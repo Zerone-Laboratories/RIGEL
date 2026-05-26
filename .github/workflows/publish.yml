@@ -15,7 +15,7 @@ jobs:
   publish-voice-assets:
     name: Publish rigel-voice-assets
     runs-on: ubuntu-latest
-    environment: pypi
+    environment: pypi-voice-assets
     permissions:
       id-token: write
       contents: read
