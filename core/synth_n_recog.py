@@ -417,9 +417,13 @@ class Synthesizer:
         text = preprocess_for_synthesis(text)
         if self.mode == "chunk":
             chunks = self._split_text_into_chunks(text)
-            
-            print(f"Processing {len(chunks)} chunks...")
-            
+            if not chunks:
+                return
+
+            print(f"Processing {len(chunks)} chunks with pipeline...")
+
+            # Start playback thread first — it will block on the queue
+            # until the first chunk is synthesized.
             playback_thread = threading.Thread(
                 target=self._play_chunks_sequentially,
                 args=(len(chunks),)
@@ -427,24 +431,16 @@ class Synthesizer:
             playback_thread.daemon = True
             playback_thread.start()
 
-            synthesis_threads = []
+            # Pipeline: synthesize chunks sequentially so that chunk N+1
+            # is being synthesized while chunk N is playing.
             for i, chunk in enumerate(chunks):
                 output_file = f"output_chunk_{i}.wav"
-                print(f"Starting synthesis for chunk {i+1}/{len(chunks)}: {chunk}")
-                
-                thread = threading.Thread(
-                    target=self._synthesize_chunk,
-                    args=(chunk, i, output_file)
-                )
-                thread.daemon = True
-                thread.start()
-                synthesis_threads.append(thread)
+                print(f"Synthesizing chunk {i+1}/{len(chunks)}: {chunk}")
+                self._synthesize_chunk(chunk, i, output_file)
 
-            for thread in synthesis_threads:
-                thread.join()
-            
+            # Wait for the playback thread to finish the final chunk(s).
             playback_thread.join()
-            
+
             print("All chunks processed and played")
                     
         elif self.mode == "linear":

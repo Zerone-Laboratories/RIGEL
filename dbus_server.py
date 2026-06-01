@@ -441,8 +441,15 @@ class RigelServer(object):
             except Exception:
                 pass
 
-        if confidence is not None and confidence < 0.5:
+        if confidence is not None and confidence < 0.2:
             return "Voice Recognition Confidence too low, Please rephrase the query"
+
+        model_query = query
+        if confidence is not None:
+            model_query = (
+                f"{query}\n\n"
+                f"<VOICE_INPUT_METADATA>rigel_voice_recognition_confidence={confidence:.4f}</VOICE_INPUT_METADATA>"
+            )
 
         syslog.info(f"RigelNaturalLanguage called with query: {query[:100]}...")
         persona_profile = """
@@ -496,7 +503,7 @@ class RigelServer(object):
         """
         messages = [
             ("system", agent_system_prompt),
-            ("human", f"{query}")
+            ("human", f"{model_query}")
         ]
         # --- VECTOR CACHE: memory_agent ---
         _vc = _get_vector_cache()
@@ -523,7 +530,7 @@ class RigelServer(object):
                 status_text = self._get_coding_agent_status_text()
                 messages = [
                     ("system", agent_system_prompt),
-                    ("human", f"Coding agent status: {status_text}\n\nUser original request: {query}. Report this status to the user in natural language.")
+                    ("human", f"Coding agent status: {status_text}\n\nUser original request: {model_query}. Report this status to the user in natural language.")
                 ]
                 response = rigel.inference_with_memory(messages=messages, thread_id=id)
                 decision_text = response.content if hasattr(response, "content") else str(response)
@@ -545,7 +552,7 @@ class RigelServer(object):
                     output = "<CODING-AGENT-OUTPUT: Failed to extract the coding task. Notify User.>"
                 messages = [
                     ("system", agent_system_prompt),
-                    ("human", f"Coding agent result: {output}\n\nUser original request: {query}. Inform the user the coding agent has started working in the background.")
+                    ("human", f"Coding agent result: {output}\n\nUser original request: {model_query}. Inform the user the coding agent has started working in the background.")
                 ]
                 response = rigel.inference_with_memory(messages=messages, thread_id=id)
                 if self._has_call_coding_agent(response.content if hasattr(response, "content") else str(response)):
@@ -566,7 +573,7 @@ class RigelServer(object):
                     output = "<TOOL-AGENT-OUTPUT: Failure while extracting the prompt. Notify User>"
                 messages = [
                     ("system", agent_system_prompt),
-                    ("human", f"Output of the tool agent execution for the task '{tool_task}': {output}\n\nUser original request: {query}. Inform the user of the tool agent output and provide a final response.")
+                    ("human", f"Output of the tool agent execution for the task '{tool_task}': {output}\n\nUser original request: {model_query}. Inform the user of the tool agent output and provide a final response.")
                 ]
                 response = rigel.inference_with_memory(messages=messages, thread_id=id)
                 decision_text = (response.content if hasattr(response, "content") else str(response)).strip()

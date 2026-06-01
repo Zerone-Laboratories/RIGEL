@@ -38,6 +38,7 @@ import signal
 import json
 import chromadb
 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+import feedparser
 
 # Import OSTools class if it's available
 try:
@@ -62,6 +63,13 @@ _TOOL_INDEX_COLLECTION = None
 _TOOL_INDEX_READY = False
 _TOOL_INDEX_LOCK = threading.Lock()
 _CHROMA_DB_PATH = os.path.expanduser("~/.rigel_tools/chroma_db")
+DEFAULT_RSS_SOURCES = {
+    "npr": "https://feeds.npr.org/1001/rss.xml",
+    "techcrunch": "https://techcrunch.com/feed/",
+    "the_verge": "https://www.theverge.com/rss/index.xml",
+    "daily_mirror": "https://www.dailymirror.lk/rss/breaking_news/108",
+
+}
 
 
 def _get_tool_index_collection():
@@ -2963,6 +2971,120 @@ def search_web(query: str, max_results: int = 5, timeout: int = 30) -> Dict[str,
         return {"success": False, "error": str(e)}
 
 @mcp.tool()
+def get_news(
+    query: str = "",
+    max_results: int = 10,
+    sources: Optional[List[str]] = None,
+    per_source_limit: int = 5
+) -> Dict[str, Any]:
+    """
+    Fetch news headlines from multiple RSS feeds.
+
+    Parameters:
+    - query: Optional filter applied to title/summary.
+    - max_results: Total number of items to return.
+    - sources: Optional list of source keys. Defaults to all configured sources.
+    - per_source_limit: Maximum items read from each RSS feed.
+
+    Available source keys:
+    reuters, ap, bbc_world, npr, techcrunch, the_verge
+
+    eg: get_news()
+    eg: get_news("ai", max_results=8)
+    """
+    trigger_notification(
+        "Tool executed: get_news",
+        f'query="{query}", max_results={max_results}, sources={sources}, per_source_limit={per_source_limit}'
+    )
+
+    try:
+        max_results = max(1, int(max_results))
+        per_source_limit = max(1, int(per_source_limit))
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "error": "max_results and per_source_limit must be valid positive integers."
+        }
+
+    selected_sources = sources or list(DEFAULT_RSS_SOURCES.keys())
+    invalid_sources = [src for src in selected_sources if src not in DEFAULT_RSS_SOURCES]
+    if invalid_sources:
+        return {
+            "success": False,
+            "error": f"Invalid source keys: {invalid_sources}",
+            "available_sources": sorted(DEFAULT_RSS_SOURCES.keys())
+        }
+
+    normalized_query = (query or "").strip().lower()
+    combined_items = []
+    failed_sources = []
+
+    for source_key in selected_sources:
+        feed_url = DEFAULT_RSS_SOURCES[source_key]
+        try:
+            parsed = feedparser.parse(feed_url)
+            if getattr(parsed, "bozo", False):
+                bozo_exception = getattr(parsed, "bozo_exception", None)
+                if bozo_exception:
+                    failed_sources.append({
+                        "source": source_key,
+                        "error": str(bozo_exception)
+                    })
+                    continue
+
+            for entry in parsed.entries[:per_source_limit]:
+                title = html.unescape(entry.get("title", "")).strip()
+                summary_raw = entry.get("summary", "") or entry.get("description", "")
+                summary = re.sub(r"<[^>]+>", " ", html.unescape(summary_raw)).strip()
+                summary = re.sub(r"\s+", " ", summary)
+
+                if normalized_query:
+                    haystack = f"{title} {summary}".lower()
+                    if normalized_query not in haystack:
+                        continue
+
+                published = entry.get("published", "") or entry.get("updated", "")
+                published_parsed = entry.get("published_parsed") or entry.get("updated_parsed")
+                published_ts = time.mktime(published_parsed) if published_parsed else 0
+
+                combined_items.append({
+                    "source": source_key,
+                    "title": title or "No title",
+                    "summary": summary[:400] if summary else "",
+                    "url": entry.get("link", ""),
+                    "published": published or "Unknown date",
+                    "_published_ts": published_ts
+                })
+        except Exception as e:
+            failed_sources.append({
+                "source": source_key,
+                "error": str(e)
+            })
+
+    if not combined_items:
+        return {
+            "success": False,
+            "query": query,
+            "error": "No matching news items found.",
+            "failed_sources": failed_sources,
+            "sources_used": selected_sources
+        }
+
+    combined_items.sort(key=lambda x: x.get("_published_ts", 0), reverse=True)
+    combined_items = combined_items[:max_results]
+    for item in combined_items:
+        item.pop("_published_ts", None)
+
+    return {
+        "success": True,
+        "query": query,
+        "result_count": len(combined_items),
+        "sources_used": selected_sources,
+        "failed_sources": failed_sources,
+        "results": combined_items
+    }
+
+@mcp.tool()
 def display_interactive_components_for_user(
     template: str,
     placeholders: Dict[str, str],
@@ -3750,6 +3872,7 @@ if __name__ == "__main__":
         "ztos_aci_list_user_contacts": ztos_aci_list_user_contacts,
         #WEB INTERACTIONS
         "search_web": search_web,
+        "get_news": get_news,
         #GUI INTERACTIONS
         "display_interactive_components_for_user": display_interactive_components_for_user,
         "initialize_a_project": initialize_project,
