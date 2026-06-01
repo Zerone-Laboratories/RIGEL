@@ -14,7 +14,7 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-REPO_URL="https://github.com/ZeroneLaboratories/RIGEL.git"
+REPO_URL="https://github.com/Zerone-Laboratories/RIGEL.git"
 INSTALL_DIR="/opt/rigel-engine"
 DBUS_CONF_FILE="rigel-dbus.conf"
 DBUS_SERVICE_NAME="com.rigel.RigelService"
@@ -45,7 +45,21 @@ _RIGEL_ELEVATED="${_RIGEL_ELEVATED:-0}"
 require_root() {
     if [[ $EUID -ne 0 ]]; then
         warn "This installer needs root privileges. Elevating with sudo..."
-        exec sudo -E _RIGEL_ELEVATED=1 bash "$(realpath "$0")" "$@"
+        local script_path="${BASH_SOURCE[0]:-$0}"
+        if command -v realpath &>/dev/null; then
+            script_path="$(realpath "$script_path" 2>/dev/null || echo "$script_path")"
+        fi
+
+        # In `curl ... | bash` mode, $0 can be "bash" (not a real file path).
+        # Re-exec only when we have a readable script file; otherwise fail with
+        # an explicit rerun instruction.
+        if [[ -f "$script_path" && -r "$script_path" ]]; then
+            exec sudo -E _RIGEL_ELEVATED=1 bash "$script_path" "$@"
+        fi
+
+        err "Cannot auto-elevate when the installer is piped via stdin."
+        echo "  Re-run with sudo on the bash invocation:"
+        echo "  curl -fsSL https://raw.githubusercontent.com/Zerone-Laboratories/RIGEL/main/install-rigel-engine.sh | sudo -E bash"
         exit 1
     fi
 }
