@@ -630,6 +630,86 @@ start_docker() {
     fi
 }
 
+setup_host_mcp_venv() {
+    step "Setting up host MCP tools server venv..."
+
+    # Get the real user (who ran sudo)
+    local real_user="${SUDO_USER:-$USER}"
+    local user_home
+    if [[ "$real_user" == "root" ]]; then
+        user_home="/root"
+    else
+        user_home=$(getent passwd "$real_user" 2>/dev/null | cut -d: -f6 || echo "/home/$real_user")
+    fi
+
+    local rigel_dir="$user_home/.rigel"
+    local venv_dir="$rigel_dir/.venv"
+
+    # Find a suitable Python
+    local PY_BIN=""
+    if command -v python3.10 >/dev/null 2>&1; then
+        PY_BIN="python3.10"
+    elif command -v python3 >/dev/null 2>&1; then
+        PY_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PY_BIN="python"
+    else
+        warn "Python not found. Skipping host MCP venv setup. Install Python 3.10+ to use MCP tools."
+        return
+    fi
+
+    # Create ~/.rigel/ directory with correct ownership
+    mkdir -p "$rigel_dir"
+    if [[ -n "$real_user" ]] && [[ "$real_user" != "root" ]]; then
+        chown "$real_user":"$(id -gn "$real_user" 2>/dev/null || echo "$real_user")" "$rigel_dir" 2>/dev/null || true
+    fi
+
+    # Create venv if it doesn't exist
+    if [[ ! -d "$venv_dir" ]]; then
+        info "Creating virtual environment at $venv_dir"
+        if ! "$PY_BIN" -m venv "$venv_dir" 2>&1; then
+            err "Failed to create virtual environment at $venv_dir"
+            return
+        fi
+    else
+        info "Virtual environment already exists at $venv_dir"
+    fi
+
+    # Set ownership on venv
+    if [[ -n "$real_user" ]] && [[ "$real_user" != "root" ]]; then
+        chown -R "$real_user":"$(id -gn "$real_user" 2>/dev/null || echo "$real_user")" "$venv_dir" 2>/dev/null || true
+    fi
+
+    local VENV_PIP="$venv_dir/bin/pip"
+
+    # Install/update dependencies
+    local req_file="$INSTALL_DIR/requirements-mcp.txt"
+    local req_hash_file="$venv_dir/.requirements-mcp.sha256"
+    if [[ -f "$req_file" ]]; then
+        local current_hash
+        current_hash=$(sha256sum "$req_file" | awk '{print $1}')
+        if [[ ! -f "$req_hash_file" ]] || [[ "$current_hash" != "$(cat "$req_hash_file" 2>/dev/null || echo)" ]]; then
+            info "Installing MCP server dependencies into $venv_dir"
+            "$VENV_PIP" install --upgrade pip setuptools wheel >/dev/null 2>&1
+            if ! "$VENV_PIP" install --prefer-binary -r "$req_file" 2>&1; then
+                warn "Some MCP dependencies failed to install. The MCP server may not work correctly."
+            fi
+            echo "$current_hash" > "$req_hash_file"
+        else
+            info "MCP server dependencies are up to date"
+        fi
+    else
+        warn "requirements-mcp.txt not found at $req_file. MCP server may not work."
+    fi
+
+    # Ensure ownership of everything in ~/.rigel/
+    if [[ -n "$real_user" ]] && [[ "$real_user" != "root" ]]; then
+        chown -R "$real_user":"$(id -gn "$real_user" 2>/dev/null || echo "$real_user")" "$rigel_dir" 2>/dev/null || true
+    fi
+
+    info "Host MCP venv ready at $venv_dir"
+}
+
 show_post_install() {
     echo ""
     echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
@@ -660,12 +740,11 @@ show_post_install() {
     echo -e "${BOLD}🔧 MCP Tools Server (Host-side):${NC}"
     echo ""
     echo "  The MCP tools server runs on the host (port 8001) for system access."
-    echo "  Start it manually:"
+    echo "  Once shell integration is set up, manage it with:"
     echo ""
-    echo -e "    ${CYAN}cd $INSTALL_DIR && python core/mcp/rigel_tools_server.py${NC}"
-    echo ""
-    echo "  Or use the convenience script:"
-    echo -e "    ${CYAN}$INSTALL_DIR/scripts/host-up.sh${NC}"
+    echo -e "    ${CYAN}rigel_mcp_start${NC}   — Start the MCP server in background"
+    echo -e "    ${CYAN}rigel_mcp_stop${NC}    — Stop the MCP server"
+    echo -e "    ${CYAN}rigel_mcp_status${NC}  — Check if MCP server is running"
     echo ""
 
     echo -e "${BOLD}🔄 Auto-start via systemd:${NC}"
@@ -1006,6 +1085,27 @@ _rigel_service_running() {
         string:com.rigel.RigelService 2>/dev/null | grep -q "boolean true"
 }
 
+# ── MCP server check helper ───────────────────────────────────────────────────
+_rigel_mcp_running() {
+    local pid_file="$HOME/.rigel/.mcp_server.pid"
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid=$(cat "$pid_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    # Fallback: check if port 8001 is in use
+    if command -v ss >/dev/null 2>&1; then
+        ss -tlnp 2>/dev/null | grep -q ":8001 "
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tlnp 2>/dev/null | grep -q ":8001 "
+    else
+        # Try curl probe as last resort
+        curl -fsS "http://127.0.0.1:8001/sse" >/dev/null 2>&1
+    fi
+}
+
 # ── Query ────────────────────────────────────────────────────────────────────
 rigel_query() {
     local no_animate=false
@@ -1135,6 +1235,11 @@ rigel_tools() {
     local enhanced_query
     enhanced_query="Working Directory: $current_dir | User request: $user_query"
 
+    if ! _rigel_mcp_running; then
+        rigel_error "MCP tools server is not running. Start it with: rigel_mcp_start"
+        return 1
+    fi
+
     if ! _rigel_service_running; then
         rigel_error "RIGEL D-Bus service is not running."
         return 1
@@ -1171,6 +1276,88 @@ rigel_tools() {
         Query \
         --no_animate \
         "string:\"$summary_prompt\""
+}
+
+# ── MCP Server Management ──────────────────────────────────────────────────
+rigel_mcp_start() {
+    if _rigel_mcp_running; then
+        local pid
+        pid=$(cat "$HOME/.rigel/.mcp_server.pid" 2>/dev/null || echo "unknown")
+        rigel_info "RigelMCP server is already running (PID: $pid)"
+        return 0
+    fi
+
+    local venv_python="$HOME/.rigel/.venv/bin/python"
+    if [[ ! -f "$venv_python" ]]; then
+        rigel_error "MCP virtual environment not found at $HOME/.rigel/.venv"
+        rigel_info "Please re-run the RIGEL installer to set up the MCP environment."
+        return 1
+    fi
+
+    local server_script="$_RIGEL_INSTALL_DIR/core/mcp/rigel_tools_server.py"
+    if [[ ! -f "$server_script" ]]; then
+        rigel_error "MCP server script not found: $server_script"
+        return 1
+    fi
+
+    mkdir -p "$HOME/.rigel"
+    local log_file="$HOME/.rigel/rigel_tools_server.log"
+    local pid_file="$HOME/.rigel/.mcp_server.pid"
+
+    rigel_info "Starting RigelMCP server in background..."
+    : > "$log_file"
+    nohup "$venv_python" "$server_script" >> "$log_file" 2>&1 &
+    local mcp_pid=$!
+    echo "$mcp_pid" > "$pid_file"
+
+    # Wait briefly and confirm startup
+    sleep 2
+    if kill -0 "$mcp_pid" 2>/dev/null; then
+        rigel_success "RigelMCP server is started in background. To kill it, use rigel_mcp_stop"
+    else
+        rigel_error "RigelMCP server failed to start. Check logs: $log_file"
+        rm -f "$pid_file"
+        return 1
+    fi
+}
+
+rigel_mcp_stop() {
+    local pid_file="$HOME/.rigel/.mcp_server.pid"
+    if [[ ! -f "$pid_file" ]]; then
+        rigel_warn "RigelMCP server is not running (no PID file found)"
+        return 0
+    fi
+
+    local pid
+    pid=$(cat "$pid_file" 2>/dev/null)
+    if [[ -z "$pid" ]]; then
+        rigel_warn "Empty PID file. Cleaning up."
+        rm -f "$pid_file"
+        return 0
+    fi
+
+    if kill -0 "$pid" 2>/dev/null; then
+        rigel_info "Stopping RigelMCP server (PID: $pid)..."
+        kill "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null || true
+        rm -f "$pid_file"
+        rigel_success "RigelMCP server stopped."
+    else
+        rigel_info "RigelMCP server (PID: $pid) is no longer running. Cleaning up PID file."
+        rm -f "$pid_file"
+    fi
+}
+
+rigel_mcp_status() {
+    if _rigel_mcp_running; then
+        local pid
+        pid=$(cat "$HOME/.rigel/.mcp_server.pid" 2>/dev/null || echo "running")
+        rigel_success "RigelMCP server is running (PID: $pid)"
+        return 0
+    else
+        rigel_warn "RigelMCP server is not running. Start it with: rigel_mcp_start"
+        return 1
+    fi
 }
 
 # ── Vision ───────────────────────────────────────────────────────────────────
@@ -1666,6 +1853,11 @@ rigel_help() {
         print -P "  ${_rigel_color_yellow}rigel_coding_launch${_rigel_color_reset}                  — Launch coding agent"
         print -P "  ${_rigel_color_yellow}rigel_coding_close${_rigel_color_reset}                   — Close coding agent"
         print -P ""
+        print -P "${_rigel_color_green}MCP Server Management:${_rigel_color_reset}"
+        print -P "  ${_rigel_color_yellow}rigel_mcp_start${_rigel_color_reset}  — Start the MCP tools server in background"
+        print -P "  ${_rigel_color_yellow}rigel_mcp_stop${_rigel_color_reset}   — Stop the MCP tools server"
+        print -P "  ${_rigel_color_yellow}rigel_mcp_status${_rigel_color_reset} — Check if MCP server is running"
+        print -P ""
         print -P "${_rigel_color_green}Utility Functions:${_rigel_color_reset}"
         print -P "  ${_rigel_color_yellow}rigel_license${_rigel_color_reset} — Show license info"
         print -P "  ${_rigel_color_yellow}rigel_status${_rigel_color_reset}  — Check service health"
@@ -1709,6 +1901,11 @@ rigel_help() {
         echo ""
         echo -e "${_rigel_color_green}Coding Agent:${_rigel_color_reset}"
         echo "  rigel_coding_* — Generate, review, debug, refactor, explain, execute code"
+        echo ""
+        echo -e "${_rigel_color_green}MCP Server Management:${_rigel_color_reset}"
+        echo "  rigel_mcp_start  — Start the MCP tools server in background"
+        echo "  rigel_mcp_stop   — Stop the MCP tools server"
+        echo "  rigel_mcp_status — Check if MCP server is running"
         echo ""
         echo -e "${_rigel_color_green}Utility:${_rigel_color_reset}"
         echo "  rigel_license — License info  | rigel_status  — Service health"
@@ -1835,6 +2032,13 @@ _rigel_startup() {
         rigel_info "Use 'rigel_debug' to troubleshoot D-Bus connection issues."
     fi
 
+    # Check MCP server status
+    if _rigel_mcp_running 2>/dev/null; then
+        rigel_success "RigelMCP server is active on port 8001"
+    else
+        rigel_warn "RigelMCP server is not running. Start it with: rigel_mcp_start"
+    fi
+
     # Warn if server is web-only (no D-Bus service)
     if _rigel_check_server_type; then
         if [[ -n "$ZSH_VERSION" ]]; then
@@ -1906,6 +2110,7 @@ main() {
     install_dbus_config
     build_docker
     start_docker
+    setup_host_mcp_venv
     show_post_install
     install_shell_integration
 }
