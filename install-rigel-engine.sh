@@ -185,6 +185,7 @@ run_config_wizard() {
 import os, sys, re
 from pathlib import Path
 
+sys.stdin = open("/dev/tty")
 INSTALL_DIR = Path(sys.argv[1])
 ENV_FILE = INSTALL_DIR / ".env"
 
@@ -195,7 +196,8 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 
-console = Console()
+import io
+console = Console(file=open("/dev/tty", "w"))
 
 def banner():
     console.print(Panel.fit(
@@ -516,7 +518,7 @@ if __name__ == "__main__":
     main()
 PYEOF
 
-    "$PYTHON" "$_WIZARD_PY" "$INSTALL_DIR"
+    "$PYTHON" "$_WIZARD_PY" "$INSTALL_DIR" </dev/tty
     cp "$_WIZARD_PY" "$INSTALL_DIR/rigel-config-wizard.py"
     chmod 644 "$INSTALL_DIR/rigel-config-wizard.py"
     rm -f "$_WIZARD_PY"
@@ -533,14 +535,14 @@ basic_config() {
     echo "  1) groq (cloud)"
     echo "  2) ollama (local)"
     echo "  3) deepseek (cloud) — coming soon, unavailable"
-    read -rp "Choice [1-2]: " engine_choice
+    read -rp "Choice [1-2]: " engine_choice </dev/tty
     case "$engine_choice" in
         1) ENGINE="groq" ;;
         2) ENGINE="ollama" ;;
         *) ENGINE="groq" ;;
     esac
 
-    read -rp "Enter model name (default: depends on engine): " MODEL
+    read -rp "Enter model name (default: depends on engine): " MODEL </dev/tty
     [[ -z "$MODEL" ]] && case "$ENGINE" in
         groq) MODEL="openai/gpt-oss-120b" ;;
         ollama) MODEL="llama3.2" ;;
@@ -760,7 +762,7 @@ install_shell_integration() {
     echo -e "  ${BOLD}${CYAN}└─────────────────────────────────────────────┘${NC}"
     echo ""
 
-    read -rp "  Add experimental rigel shell commands to environment? [y/N]: " answer
+    read -rp "  Add experimental rigel shell commands to environment? [y/N]: " answer </dev/tty
     case "$answer" in
         [Yy]|[Yy][Ee][Ss]) ;;
         *)
